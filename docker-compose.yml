@@ -1,0 +1,245 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: accident_postgres
+    environment:
+      POSTGRES_DB: accident_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - accident_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: accident_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - accident_network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: accident_api_gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key}
+      - USER_SERVICE_URL=http://user-service:3001
+      - ACCIDENT_SERVICE_URL=http://accident-service:3002
+      - VIDEO_SERVICE_URL=http://video-service:3003
+      - AI_SERVICE_URL=http://ai-service:3004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3005
+      - MAP_SERVICE_URL=http://map-service:3006
+      - REPORT_SERVICE_URL=http://report-service:3007
+      - CAMERA_SERVICE_URL=http://camera-service:3008
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+  # User Service
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: accident_user_service
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=accident_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+  # Accident Service
+  accident-service:
+    build:
+      context: ./services/accident-service
+      dockerfile: Dockerfile
+    container_name: accident_accident_service
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=accident_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+  # Video Service
+  video-service:
+    build:
+      context: ./services/video-service
+      dockerfile: Dockerfile
+    container_name: accident_video_service
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=accident_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_KEY_FILE=/app/gcp-key.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-accident-videos}
+    volumes:
+      - ./gcp-key.json:/app/gcp-key.json:ro
+      - video_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+  # AI Detection Service (Python)
+  ai-service:
+    build:
+      context: ./services/ai-detection-service
+      dockerfile: Dockerfile
+    container_name: accident_ai_service
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=accident_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_KEY_FILE=/app/gcp-key.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-accident-videos}
+      - MODEL_PATH=/app/models/yolov8n.pt
+    volumes:
+      - ./gcp-key.json:/app/gcp-key.json:ro
+      - ./models:/app/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+  # Camera Service
+  camera-service:
+    build:
+      context: ./services/camera-service
+      dockerfile: Dockerfile
+    container_name: accident_camera_service
+    ports:
+      - "3008:3008"
+    environment:
+      - PORT=3008
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=accident_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_KEY_FILE=/app/gcp-key.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-accident-videos}
+    volumes:
+      - ./gcp-key.json:/app/gcp-key.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: accident_notification_service
+    ports:
+      - "3005:3005"
+    environment:
+      - PORT=3005
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=accident_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - FCM_SERVER_KEY=${FCM_SERVER_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - accident_network
+    restart: unless-stopped
+
+networks:
+  accident_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  video_uploads:
