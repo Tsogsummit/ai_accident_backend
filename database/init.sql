@@ -126,7 +126,7 @@ CREATE TABLE accidents (
     status VARCHAR(20) DEFAULT 'reported', -- reported, confirmed, resolved, false_alarm
     source VARCHAR(20) DEFAULT 'user', -- user, camera
     verification_count INTEGER DEFAULT 0,
-    timestamp TIMESTAMP DEFAULT NOW(),
+    accident_time TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -134,7 +134,7 @@ CREATE INDEX idx_accidents_location ON accidents USING GIST (
     ll_to_earth(latitude, longitude)
 );
 CREATE INDEX idx_accidents_status ON accidents(status);
-CREATE INDEX idx_accidents_timestamp ON accidents(timestamp DESC);
+CREATE INDEX idx_accidents_timestamp ON accidents(accident_time DESC);
 CREATE INDEX idx_accidents_source ON accidents(source);
 
 -- AI Detections хүснэгт
@@ -260,7 +260,7 @@ CREATE OR REPLACE FUNCTION get_nearby_accidents(
     severity VARCHAR,
     status VARCHAR,
     description TEXT,
-    timestamp TIMESTAMP,
+    accident_time TIMESTAMP,
     distance_meters DECIMAL
 ) AS $$
 BEGIN
@@ -272,7 +272,7 @@ BEGIN
         a.severity,
         a.status,
         a.description,
-        a.timestamp,
+        a.accident_time,
         calculate_distance(user_lat, user_lon, a.latitude, a.longitude) as distance_meters
     FROM accidents a
     WHERE a.status != 'resolved'
@@ -335,7 +335,7 @@ SELECT
     a.severity,
     a.status,
     a.source,
-    a.timestamp,
+    a.accident_time,
     u.name as reported_by,
     c.name as camera_name,
     COUNT(DISTINCT fr.id) as false_report_count,
@@ -357,9 +357,9 @@ SELECT
     c.status,
     c.is_online,
     COUNT(DISTINCT a.id) as total_accidents,
-    COUNT(DISTINCT CASE WHEN a.timestamp > NOW() - INTERVAL '24 hours' THEN a.id END) as accidents_24h,
-    MAX(a.timestamp) as last_accident_time,
-    MAX(cl.timestamp) as last_log_time
+    COUNT(DISTINCT CASE WHEN a.accident_time > NOW() - INTERVAL '24 hours' THEN a.id END) as accidents_24h,
+    MAX(a.accident_time) as last_accident_time,
+    MAX(cl.accident_time) as last_log_time
 FROM cameras c
 LEFT JOIN accidents a ON c.id = a.camera_id
 LEFT JOIN camera_logs cl ON c.id = cl.camera_id
@@ -374,7 +374,7 @@ SELECT
     COUNT(DISTINCT a.id) as total_reports,
     COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END) as confirmed_reports,
     COUNT(DISTINCT fr.id) as false_reports_made,
-    MAX(a.timestamp) as last_report_time
+    MAX(a.accident_time) as last_report_time
 FROM users u
 LEFT JOIN accidents a ON u.id = a.user_id
 LEFT JOIN false_reports fr ON u.id = fr.user_id

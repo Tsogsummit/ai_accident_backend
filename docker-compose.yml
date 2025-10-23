@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    image: postgis/postgis:15-3.4-alpine
     container_name: accident_postgres
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
@@ -163,14 +163,18 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       MODEL_PATH: /app/models/yolov8n.pt
+      YOLO_CONFIG_DIR: /tmp/Ultralytics
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
     volumes:
       - ./models:/app/models:ro
       - ./gcp-key.json:/app/gcp-key.json:ro
+      - ./tmp_ultralytics:/tmp/Ultralytics
     depends_on:
       - postgres
     networks:
       - accident_network
     restart: unless-stopped
+    platform: linux/amd64 
     # GPU support (optional)
     # deploy:
     #   resources:
@@ -198,8 +202,11 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      FCM_SERVER_KEY: ${FCM_SERVER_KEY}
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CREDENTIALS: /app/firebase.json
+      FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
+    volumes:
+      - ./firebase.json:/app/firebase.json:ro
+
     depends_on:
       - postgres
       - redis

@@ -5,7 +5,9 @@
     "main": "index.js",
     "scripts": {
       "test": "jest",
-      "lint": "eslint ."
+      "lint": "eslint .",
+      "start": "node index.js",
+      "dev": "nodemon index.js"
     },
     "keywords": [
       "accident",

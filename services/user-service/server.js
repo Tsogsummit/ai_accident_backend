@@ -125,7 +125,7 @@ app.post('/auth/register', async (req, res) => {
 
   } catch (error) {
     console.error('Register error:', error);
-    res.status(500).json({ error: 'Бүртгэлд алдаа гарлаа' });
+    res.status(500).json({ error: 'Бүртгэлд алдаа гарлаа' , details: error.message});
   }
 });
 
