@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+opencv-python-headless
+numpy
+ultralytics
+google-cloud-storage
+google-cloud-pubsub
+psycopg2-binary
