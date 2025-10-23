@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "sublime-delight-475805-d3",
+  "private_key_id": "68174ef23f16824294092e79f1909666bc6b8101",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC/JIyTdt2KFDAO\nJXMrxIJLoeQf/5B+j7r4LpZxTGCdXMdKVzG2EEF1nMF5bJ9SLRiExwE75IvefJfg\nyZKHSM3dUMHb5QbE14dMPPXNqZnYcAjULQK0qJrumPOBG2ogicXZEay6+zQmZnbD\nBfY05TdYHT+gDDbvw/AhWU4l02SqvzNDt1yT7H4+CVqqLAz+HgG8VoxYHF7CpLgZ\nfd6zp6gMF9NO4G9LQN7udDtDdkW8agqgH+txsVPEYWkepD10pAmYxOpwgOUkdDU1\nchpzSCH3d2I7sKpsh2pw3F1Jy9NevGzuBJiGcBcrsa7DVMeG9gtx9vwNiFqLMPxW\nK21Xw5dPAgMBAAECggEANt3K7FlmZkg9MxJU6O9TZ1plHTpCw9GGHc9hp8wAv6ru\nGczFnDk2UQhaEPy5DuGa9CIbnJGSBJ9HCWNTCDpBvZF81B39v2sOjzfAZvSUEKi4\nIA97g1gSgQKugxTXddeWTyTfrByHb65h0MFZVv2k0Uo0BUD8U/6uYyQ7ZmgzsT8J\nO/cJ8sPjqRg2tfPGOcj5r+I8Y90ZdOymnJKi7TdaS/lMD2p0ic23t7bAQt+bTzyM\nViBpf4usXtuK3NUcpFys+8lPx4o3spw130WWCUqtDRYcdYeSOubUcs9qzYJx1NC4\ni/TaFmwAz2UmscAFF6xlFuv9Irj62EMDaDmWWNfxYQKBgQD2s9pKzmbZ2hr1zio+\n060tkzshF+1VpOaWLJPqoDANiUpJ2X3PxDdYU5iToe9fNCpA3YlX3zdyhJ0uEkT9\nvvBp2q98nwLZ8Co9NQVQEeYn81y0S/eeXf27F2MWa3F3xjTF5X0CKcG3MSci/lhZ\n2+JEp7AZqs6ARPsVAKfjqndqdQKBgQDGWKoYAcE2sZv8C7YWDQ6/PxlmtEUQKjvT\nTprQbJkWMVJalOwfVV0BfvReLaPiP2tXMiqV98K2fAaBzntQ/+BZkleuJZ5/FOHU\nylNaNWQRURWYmnrVQ2DQeiK0s9LT51CMIk/fzXBG5KHek9mpRuZQdhu3yCkzsPvF\n+g1h6FOaMwKBgAlatntBqkq2Z3FMmPN66UUiIQrXMmud7hRhqlYqLshEnWmBcrDP\nGt4hhVaLvFzayINfIxcO4rZX6vHVRYJtnAYXgbHzAZOr9J4PhZ0MoLKBGtHHU6NQ\now9WCq7N8iZ9gIDEe+H6HVtJ5NcB1+3IVaMOzLGcdWoNs4uPU85hJ1gFAoGAbQH5\nqWv9dkOyiJkfH4tZmX3iRfG5KyMq8fz3VKj6kZnVuvaxtp7BmLrfLotC0GsuYSOv\nB/C80HHlWZ3TZDbcZB3rlkgSjaE6ZCo2GRPSxTmc9tufumlnYexd+pYBvngYaovI\n/iT4Gd45oAv9yeyvU3U10pFtI32XQb0lcbOvjsUCgYEAu71faIs8A+swuzNht26w\n59bQIzKuph9y27jJlpvYvWZ+NFW6ua7VGd7YiQz5IQvsguMKSlYeyenfL01UHcz4\nts73lWlh6wHgpOHi2+QJxwGXJtg0GYeANVy7+VWU/sTyQAaC18slWmxlQEjG/keS\ntmRIa5Xnm5H6iB2kS3772Os=\n-----END PRIVATE KEY-----\n",
+  "client_email": "ai-accident@sublime-delight-475805-d3.iam.gserviceaccount.com",
+  "client_id": "107822751721905564882",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/ai-accident%40sublime-delight-475805-d3.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

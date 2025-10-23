@@ -1,6 +1,11 @@
 -- Database: accident_db
 -- Таны диплом дээрх класс диаграммаас
 
+-- Enable PostGIS extension
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS cube;
+CREATE EXTENSION IF NOT EXISTS earthdistance;
+
 -- Users хүснэгт
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,

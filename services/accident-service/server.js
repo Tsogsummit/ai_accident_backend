@@ -1,21 +1,40 @@
-// services/accident-service/server.js
+// services/accident-service/server.js - IMPROVED VERSION
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
 const { Server } = require('socket.io');
 const http = require('http');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { body, validationResult, query } = require('express-validator');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { 
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+    credentials: true 
+  }
 });
 
 const PORT = process.env.PORT || 3002;
 
-app.use(express.json());
+// Security middleware
+app.use(helmet());
+app.use(express.json({ limit: '10mb' }));
 
-// PostgreSQL холболт
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: 'Хэт олон хүсэлт илгээлээ',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', limiter);
+
+// PostgreSQL холболт with better error handling
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -27,310 +46,369 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-// Redis кэш
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
+
+// Redis кэш with error handling
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
-  retryStrategy: (times) => Math.min(times * 50, 2000)
+  retryStrategy: (times) => {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  },
+  maxRetriesPerRequest: 3,
 });
 
+redis.on('error', (err) => {
+  console.error('Redis error:', err);
+});
+
+// JWT Authentication Middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Нэвтрэх шаардлагатай' 
+    });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+    if (err) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Хүчингүй токен' 
+      });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Validation helper
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ 
+      success: false, 
+      errors: errors.array() 
+    });
+  }
+  next();
+};
+
 // Socket.IO холболт удирдах
-const userSockets = new Map(); // userId -> socketId маппинг
+const userSockets = new Map();
 
 io.on('connection', (socket) => {
-  console.log('Client холбогдсон:', socket.id);
+  console.log('Client connected:', socket.id);
 
   socket.on('register', (userId) => {
-    userSockets.set(userId, socket.id);
+    userSockets.set(userId.toString(), socket.id);
     socket.userId = userId;
-    console.log(`User ${userId} бүртгэгдлээ`);
+    console.log(`User ${userId} registered`);
   });
 
   socket.on('update-location', async ({ latitude, longitude }) => {
     if (socket.userId) {
-      await redis.setex(
-        `user:${socket.userId}:location`,
-        300, // 5 минут
-        JSON.stringify({ latitude, longitude, timestamp: Date.now() })
-      );
+      try {
+        await redis.setex(
+          `user:${socket.userId}:location`,
+          300,
+          JSON.stringify({ latitude, longitude, timestamp: Date.now() })
+        );
+      } catch (err) {
+        console.error('Location update error:', err);
+      }
     }
   });
 
   socket.on('disconnect', () => {
     if (socket.userId) {
-      userSockets.delete(socket.userId);
-      console.log(`User ${socket.userId} салгалаа`);
+      userSockets.delete(socket.userId.toString());
+      console.log(`User ${socket.userId} disconnected`);
     }
   });
 });
 
-// GET /accidents - Бүх ослын жагсаалт (кэштэй)
-app.get('/accidents', async (req, res) => {
-  try {
-    const { status, severity, limit = 100, offset = 0 } = req.query;
+// GET /accidents - Improved with caching and validation
+app.get('/accidents', 
+  authenticateToken,
+  [
+    query('status').optional().isIn(['reported', 'confirmed', 'resolved', 'false_alarm']),
+    query('severity').optional().isIn(['minor', 'moderate', 'severe']),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('offset').optional().isInt({ min: 0 }),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { status, severity, limit = 100, offset = 0 } = req.query;
 
-    // Redis-ээс кэш шалгах
-    const cacheKey = `accidents:${status || 'all'}:${severity || 'all'}:${limit}:${offset}`;
-    const cached = await redis.get(cacheKey);
-    
-    if (cached) {
-      return res.json({
-        source: 'cache',
-        data: JSON.parse(cached)
+      // Cache key
+      const cacheKey = `accidents:${status || 'all'}:${severity || 'all'}:${limit}:${offset}`;
+      
+      // Check cache
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return res.json({
+          success: true,
+          source: 'cache',
+          data: JSON.parse(cached),
+        });
+      }
+
+      // Build query with proper SQL injection prevention
+      let queryText = `
+        SELECT 
+          a.*,
+          u.name as reported_by_name,
+          u.phone as reported_by_phone,
+          c.name as camera_name,
+          COUNT(DISTINCT fr.id) as false_report_count,
+          AVG(aid.confidence)::float as avg_confidence
+        FROM accidents a
+        LEFT JOIN users u ON a.user_id = u.id
+        LEFT JOIN cameras c ON a.camera_id = c.id
+        LEFT JOIN false_reports fr ON a.id = fr.accident_id
+        LEFT JOIN videos v ON a.video_id = v.id
+        LEFT JOIN ai_detections aid ON v.id = aid.video_id
+        WHERE 1=1
+      `;
+      
+      const params = [];
+      let paramIndex = 1;
+
+      if (status) {
+        queryText += ` AND a.status = $${paramIndex++}`;
+        params.push(status);
+      }
+
+      if (severity) {
+        queryText += ` AND a.severity = $${paramIndex++}`;
+        params.push(severity);
+      }
+
+      queryText += `
+        GROUP BY a.id, u.name, u.phone, c.name
+        ORDER BY a.timestamp DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+      `;
+      
+      params.push(parseInt(limit), parseInt(offset));
+
+      const result = await pool.query(queryText, params);
+
+      // Cache result (5 minutes)
+      await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
+
+      res.json({
+        success: true,
+        source: 'database',
+        data: result.rows,
+        total: result.rowCount,
+      });
+
+    } catch (error) {
+      console.error('GET /accidents error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Ослын мэдээлэл татахад алдаа гарлаа' 
       });
     }
+  }
+);
 
-    // Database-ээс татах
-    let query = `
-      SELECT a.*, u.name as reported_by_name, u.phone as reported_by_phone,
-             COUNT(fr.id) as false_report_count,
-             AVG(aid.confidence) as avg_confidence
-      FROM accidents a
-      LEFT JOIN users u ON a.user_id = u.id
-      LEFT JOIN false_reports fr ON a.id = fr.accident_id
-      LEFT JOIN ai_detections aid ON a.video_id = aid.video_id
-      WHERE 1=1
-    `;
+// POST /accidents - Improved with validation
+app.post('/accidents',
+  authenticateToken,
+  [
+    body('latitude').isFloat({ min: -90, max: 90 }),
+    body('longitude').isFloat({ min: -180, max: 180 }),
+    body('description').trim().isLength({ min: 5, max: 500 }),
+    body('severity').isIn(['minor', 'moderate', 'severe']),
+    body('videoId').optional().isInt(),
+    body('imageUrl').optional().isURL(),
+  ],
+  validate,
+  async (req, res) => {
+    const client = await pool.connect();
     
-    const params = [];
-    let paramIndex = 1;
+    try {
+      const {
+        latitude,
+        longitude,
+        description,
+        severity = 'minor',
+        videoId,
+        imageUrl,
+      } = req.body;
 
-    if (status) {
-      query += ` AND a.status = $${paramIndex++}`;
-      params.push(status);
-    }
+      const userId = req.user.userId;
 
-    if (severity) {
-      query += ` AND a.severity = $${paramIndex++}`;
-      params.push(severity);
-    }
+      await client.query('BEGIN');
 
-    query += `
-      GROUP BY a.id, u.name, u.phone
-      ORDER BY a.timestamp DESC
-      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
-    `;
-    
-    params.push(limit, offset);
+      // Create accident
+      const accidentResult = await client.query(`
+        INSERT INTO accidents (
+          user_id, latitude, longitude, description, 
+          severity, status, source, video_id, image_url, timestamp
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        RETURNING *
+      `, [userId, latitude, longitude, description, severity, 'reported', 'user', videoId, imageUrl]);
 
-    const result = await pool.query(query, params);
+      const accident = accidentResult.rows[0];
 
-    // Redis-д кэшлэх (5 минут)
-    await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
-
-    res.json({
-      source: 'database',
-      data: result.rows,
-      total: result.rowCount
-    });
-
-  } catch (error) {
-    console.error('Accidents fetch error:', error);
-    res.status(500).json({ error: 'Ослын мэдээлэл татахад алдаа гарлаа' });
-  }
-});
-
-// GET /accidents/:id - Ослын дэлгэрэнгүй
-app.get('/accidents/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const result = await pool.query(`
-      SELECT a.*, 
-             u.name as reported_by_name,
-             u.phone as reported_by_phone,
-             v.file_path as video_path,
-             v.duration as video_duration,
-             aid.confidence as ai_confidence,
-             aid.detected_objects,
-             c.name as camera_name,
-             c.location as camera_location
-      FROM accidents a
-      LEFT JOIN users u ON a.user_id = u.id
-      LEFT JOIN videos v ON a.video_id = v.id
-      LEFT JOIN ai_detections aid ON v.id = aid.video_id
-      LEFT JOIN cameras c ON a.camera_id = c.id
-      WHERE a.id = $1
-    `, [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Осол олдсонгүй' });
-    }
-
-    res.json(result.rows[0]);
-
-  } catch (error) {
-    console.error('Accident detail error:', error);
-    res.status(500).json({ error: 'Дэлгэрэнгүй татахад алдаа гарлаа' });
-  }
-});
-
-// POST /accidents - Шинэ осол мэдээлэх (хэрэглэгчээс)
-app.post('/accidents', async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    const {
-      userId,
-      latitude,
-      longitude,
-      description,
-      severity = 'minor',
-      videoId,
-      imageUrl
-    } = req.body;
-
-    // Validation
-    if (!userId || !latitude || !longitude) {
-      return res.status(400).json({ 
-        error: 'userId, latitude, longitude заавал байх ёстой' 
-      });
-    }
-
-    await client.query('BEGIN');
-
-    // Accident үүсгэх
-    const accidentResult = await client.query(`
-      INSERT INTO accidents (
-        user_id, latitude, longitude, description, 
-        severity, status, source, video_id, image_url, timestamp
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-      RETURNING *
-    `, [userId, latitude, longitude, description, severity, 'reported', 'user', videoId, imageUrl]);
-
-    const accident = accidentResult.rows[0];
-
-    // Location хадгалах
-    await client.query(`
-      INSERT INTO locations (accident_id, latitude, longitude, timestamp)
-      VALUES ($1, $2, $3, NOW())
-    `, [accident.id, latitude, longitude]);
-
-    await client.query('COMMIT');
-
-    // Redis кэш устгах
-    const keys = await redis.keys('accidents:*');
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
-
-    // Ойролцоох хэрэглэгчдэд мэдэгдэл илгээх (5км радиус)
-    await notifyNearbyUsers(accident, 5000); // 5км
-
-    res.status(201).json({
-      message: 'Осол амжилттай бүртгэгдлээ',
-      accident
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Create accident error:', error);
-    res.status(500).json({ error: 'Осол бүртгэхэд алдаа гарлаа' });
-  } finally {
-    client.release();
-  }
-});
-
-// PUT /accidents/:id/status - Ослын төлөв шинэчлэх
-app.put('/accidents/:id/status', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, userId } = req.body;
-
-    const validStatuses = ['reported', 'confirmed', 'resolved', 'false_alarm'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: 'Буруу төлөв' });
-    }
-
-    const result = await pool.query(`
-      UPDATE accidents 
-      SET status = $1, updated_at = NOW()
-      WHERE id = $2
-      RETURNING *
-    `, [status, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Осол олдсонгүй' });
-    }
-
-    // Redis кэш устгах
-    const keys = await redis.keys('accidents:*');
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
-
-    res.json({
-      message: 'Төлөв шинэчлэгдлээ',
-      accident: result.rows[0]
-    });
-
-  } catch (error) {
-    console.error('Update status error:', error);
-    res.status(500).json({ error: 'Төлөв шинэчлэхэд алдаа гарлаа' });
-  }
-});
-
-// POST /accidents/:id/false-report - Буруу мэдээлэл засварлах
-app.post('/accidents/:id/false-report', async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    const { id } = req.params;
-    const { userId, reasonId, comment } = req.body;
-
-    await client.query('BEGIN');
-
-    // False report бүртгэх
-    await client.query(`
-      INSERT INTO false_reports (accident_id, user_id, reason_id, comment, reported_at)
-      VALUES ($1, $2, $3, $4, NOW())
-    `, [id, userId, reasonId, comment]);
-
-    // False report тоо шалгах
-    const countResult = await client.query(`
-      SELECT COUNT(*) as count FROM false_reports WHERE accident_id = $1
-    `, [id]);
-
-    const falseReportCount = parseInt(countResult.rows[0].count);
-
-    // 3+ false report бол status өөрчлөх
-    if (falseReportCount >= 3) {
+      // Store location
       await client.query(`
-        UPDATE accidents 
-        SET status = 'false_alarm', updated_at = NOW()
-        WHERE id = $1
-      `, [id]);
+        INSERT INTO locations (user_id, latitude, longitude, timestamp)
+        VALUES ($1, $2, $3, NOW())
+      `, [userId, latitude, longitude]);
+
+      await client.query('COMMIT');
+
+      // Clear cache
+      const keys = await redis.keys('accidents:*');
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+
+      // Notify nearby users (async, don't wait)
+      notifyNearbyUsers(accident, 5000).catch(err => 
+        console.error('Notification error:', err)
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Осол амжилттай бүртгэгдлээ',
+        data: accident,
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('POST /accidents error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Осол бүртгэхэд алдаа гарлаа' 
+      });
+    } finally {
+      client.release();
     }
-
-    await client.query('COMMIT');
-
-    // Redis кэш устгах
-    const keys = await redis.keys('accidents:*');
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
-
-    res.json({
-      message: 'Буруу мэдээлэл бүртгэгдлээ',
-      falseReportCount
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('False report error:', error);
-    res.status(500).json({ error: 'Мэдээлэл бүртгэхэд алдаа гарлаа' });
-  } finally {
-    client.release();
   }
-});
+);
+
+// GET /accidents/:id - With validation
+app.get('/accidents/:id',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!/^\d+$/.test(id)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Буруу ID формат' 
+        });
+      }
+
+      const result = await pool.query(`
+        SELECT a.*, 
+               u.name as reported_by_name,
+               u.phone as reported_by_phone,
+               v.file_path as video_path,
+               v.duration as video_duration,
+               aid.confidence as ai_confidence,
+               aid.detected_objects,
+               c.name as camera_name,
+               c.location as camera_location
+        FROM accidents a
+        LEFT JOIN users u ON a.user_id = u.id
+        LEFT JOIN videos v ON a.video_id = v.id
+        LEFT JOIN ai_detections aid ON v.id = aid.video_id
+        LEFT JOIN cameras c ON a.camera_id = c.id
+        WHERE a.id = $1
+      `, [id]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Осол олдсонгүй' 
+        });
+      }
+
+      res.json({
+        success: true,
+        data: result.rows[0],
+      });
+
+    } catch (error) {
+      console.error('GET /accidents/:id error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Дэлгэрэнгүй татахад алдаа гарлаа' 
+      });
+    }
+  }
+);
+
+// PUT /accidents/:id/status - With validation
+app.put('/accidents/:id/status',
+  authenticateToken,
+  [
+    body('status').isIn(['reported', 'confirmed', 'resolved', 'false_alarm']),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      const result = await pool.query(`
+        UPDATE accidents 
+        SET status = $1, updated_at = NOW()
+        WHERE id = $2
+        RETURNING *
+      `, [status, id]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Осол олдсонгүй' 
+        });
+      }
+
+      // Clear cache
+      const keys = await redis.keys('accidents:*');
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+
+      res.json({
+        success: true,
+        message: 'Төлөв шинэчлэгдлээ',
+        data: result.rows[0],
+      });
+
+    } catch (error) {
+      console.error('PUT /accidents/:id/status error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Төлөв шинэчлэхэд алдаа гарлаа' 
+      });
+    }
+  }
+);
 
 // Ойролцоох хэрэглэгчдэд мэдэгдэл илгээх функц
 async function notifyNearbyUsers(accident, radiusMeters) {
   try {
-    // Redis-ээс бүх идэвхтэй хэрэглэгчдийн байршил авах
     const keys = await redis.keys('user:*:location');
-    
     const nearbyUsers = [];
     
     for (const key of keys) {
@@ -351,7 +429,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
       }
     }
 
-    // Socket.IO-оор мэдэгдэл илгээх
+    // Send notifications via Socket.IO
     for (const userId of nearbyUsers) {
       const socketId = userSockets.get(userId);
       if (socketId) {
@@ -361,21 +439,22 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           longitude: accident.longitude,
           severity: accident.severity,
           description: accident.description,
-          timestamp: accident.timestamp
+          timestamp: accident.timestamp,
         });
       }
     }
 
-    console.log(`Мэдэгдэл илгээгдсэн: ${nearbyUsers.length} хэрэглэгч`);
+    console.log(`Notifications sent to ${nearbyUsers.length} users`);
 
   } catch (error) {
     console.error('Notify error:', error);
+    throw error;
   }
 }
 
-// Haversine формулаар зай тооцоолох (метрээр)
+// Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Дэлхийн радиус метрээр
+  const R = 6371e3;
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -389,18 +468,66 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy',
-    service: 'accident-service',
-    timestamp: new Date().toISOString()
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Серверийн алдаа гарлаа' 
+      : err.message,
   });
 });
 
+// Health check - improved
+app.get('/health', async (req, res) => {
+  const health = {
+    status: 'healthy',
+    service: 'accident-service',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  };
+
+  try {
+    // Check database
+    await pool.query('SELECT 1');
+    health.database = 'connected';
+  } catch (err) {
+    health.database = 'disconnected';
+    health.status = 'unhealthy';
+  }
+
+  try {
+    // Check Redis
+    await redis.ping();
+    health.redis = 'connected';
+  } catch (err) {
+    health.redis = 'disconnected';
+    health.status = 'unhealthy';
+  }
+
+  const statusCode = health.status === 'healthy' ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
+  
+  await pool.end();
+  await redis.quit();
+  
+  process.exit(0);
+});
+
 server.listen(PORT, () => {
-  console.log(`🚗 Accident Service запущен на порту ${PORT}`);
-  console.log(`🔌 Socket.IO готов для WebSocket соединений`);
+  console.log(`🚗 Accident Service running on port ${PORT}`);
+  console.log(`🔌 Socket.IO ready for WebSocket connections`);
+  console.log(`🔒 Security: Helmet enabled`);
+  console.log(`⚡ Rate limiting: ${100} requests/min`);
 });
 
 module.exports = app;
