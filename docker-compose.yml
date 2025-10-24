@@ -19,8 +19,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     networks:
       - accident_network
+    restart: unless-stopped
 
   # Redis Cache
   redis:
@@ -28,16 +30,17 @@ services:
     container_name: accident_redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    networks:
+      - accident_network
+    # ⚠️ PASSWORD УСТГАСАН - command хоосон
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 5
-    networks:
-      - accident_network
 
   # API Gateway
   api-gateway:
@@ -48,7 +51,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
       JWT_SECRET: ${JWT_SECRET}
       USER_SERVICE_URL: http://user-service:3001
@@ -59,12 +62,25 @@ services:
       MAP_SERVICE_URL: http://map-service:3006
       REPORT_SERVICE_URL: http://report-service:3007
       CAMERA_SERVICE_URL: http://camera-service:3008
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      accident-service:
+        condition: service_started
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # User Service
   user-service:
@@ -75,7 +91,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3001
       DB_HOST: postgres
       DB_PORT: 5432
@@ -84,13 +100,22 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Accident Service
   accident-service:
@@ -101,7 +126,7 @@ services:
     ports:
       - "3002:3002"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3002
       DB_HOST: postgres
       DB_PORT: 5432
@@ -110,13 +135,23 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Video Service
   video-service:
@@ -127,7 +162,7 @@ services:
     ports:
       - "3003:3003"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3003
       DB_HOST: postgres
       DB_PORT: 5432
@@ -137,13 +172,21 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GCP_KEY_FILE: /app/gcp-key.json
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
     volumes:
       - ./gcp-key.json:/app/gcp-key.json:ro
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # AI Detection Service
   ai-service:
@@ -170,12 +213,19 @@ services:
       - ./gcp-key.json:/app/gcp-key.json:ro
       - ./tmp_ultralytics:/tmp/Ultralytics
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
-    platform: linux/amd64 
-    # GPU support (optional)
+    platform: linux/amd64
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # GPU support (optional - uncomment if GPU available)
     # deploy:
     #   resources:
     #     reservations:
@@ -193,7 +243,7 @@ services:
     ports:
       - "3005:3005"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3005
       DB_HOST: postgres
       DB_PORT: 5432
@@ -202,17 +252,26 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       FIREBASE_CREDENTIALS: /app/firebase.json
       FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     volumes:
       - ./firebase.json:/app/firebase.json:ro
-
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Map Service
   map-service:
@@ -223,7 +282,7 @@ services:
     ports:
       - "3006:3006"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3006
       DB_HOST: postgres
       DB_PORT: 5432
@@ -232,13 +291,22 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Report Service
   report-service:
@@ -249,7 +317,7 @@ services:
     ports:
       - "3007:3007"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3007
       DB_HOST: postgres
       DB_PORT: 5432
@@ -258,12 +326,21 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Camera Service
   camera-service:
@@ -274,7 +351,7 @@ services:
     ports:
       - "3008:3008"
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3008
       DB_HOST: postgres
       DB_PORT: 5432
@@ -284,18 +361,34 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GCP_KEY_FILE: /app/gcp-key.json
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
+      CAMERA_STREAM_INTERVAL: ${CAMERA_STREAM_INTERVAL:-300000}
+      CAMERA_STREAM_DURATION: ${CAMERA_STREAM_DURATION:-30}
+      CAMERA_HEALTH_CHECK_INTERVAL: ${CAMERA_HEALTH_CHECK_INTERVAL:-60000}
     volumes:
       - ./gcp-key.json:/app/gcp-key.json:ro
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - accident_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
 
 networks:
   accident_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

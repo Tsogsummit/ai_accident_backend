@@ -1,4 +1,4 @@
-// services/accident-service/server.js - IMPROVED VERSION
+// services/accident-service/server.js - FIXED VERSION
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -24,13 +24,19 @@ const PORT = process.env.PORT || 3002;
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// Rate limiting
+// ✅ FIXED: User-based rate limiting
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
   message: 'Хэт олон хүсэлт илгээлээ',
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    // User ID + IP хослол ашиглах
+    return req.user?.userId 
+      ? `${req.user.userId}:${req.ip}` 
+      : req.ip;
+  }
 });
 app.use('/api/', limiter);
 
@@ -136,7 +142,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// GET /accidents - Improved with caching and validation
+// ✅ FIXED: GET /accidents - accident_time column ашиглана
 app.get('/accidents', 
   authenticateToken,
   [
@@ -163,7 +169,7 @@ app.get('/accidents',
         });
       }
 
-      // Build query with proper SQL injection prevention
+      // ✅ FIXED: Column name corrected to accident_time
       let queryText = `
         SELECT 
           a.*,
@@ -194,9 +200,10 @@ app.get('/accidents',
         params.push(severity);
       }
 
+      // ✅ FIXED: Column name corrected
       queryText += `
         GROUP BY a.id, u.name, u.phone, c.name
-        ORDER BY a.timestamp DESC
+        ORDER BY a.accident_time DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}
       `;
       
@@ -218,13 +225,14 @@ app.get('/accidents',
       console.error('GET /accidents error:', error);
       res.status(500).json({ 
         success: false, 
-        error: 'Ослын мэдээлэл татахад алдаа гарлаа' 
+        error: 'Ослын мэдээлэл татахад алдаа гарлаа',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 );
 
-// POST /accidents - Improved with validation
+// ✅ FIXED: POST /accidents - better validation and error handling
 app.post('/accidents',
   authenticateToken,
   [
@@ -253,11 +261,11 @@ app.post('/accidents',
 
       await client.query('BEGIN');
 
-      // Create accident
+      // ✅ FIXED: accident_time column ашиглана
       const accidentResult = await client.query(`
         INSERT INTO accidents (
           user_id, latitude, longitude, description, 
-          severity, status, source, video_id, image_url, timestamp
+          severity, status, source, video_id, image_url, accident_time
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         RETURNING *
@@ -295,7 +303,8 @@ app.post('/accidents',
       console.error('POST /accidents error:', error);
       res.status(500).json({ 
         success: false, 
-        error: 'Осол бүртгэхэд алдаа гарлаа' 
+        error: 'Осол бүртгэхэд алдаа гарлаа',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     } finally {
       client.release();
@@ -439,7 +448,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           longitude: accident.longitude,
           severity: accident.severity,
           description: accident.description,
-          timestamp: accident.timestamp,
+          timestamp: accident.accident_time,  // ✅ FIXED
         });
       }
     }
@@ -527,7 +536,7 @@ server.listen(PORT, () => {
   console.log(`🚗 Accident Service running on port ${PORT}`);
   console.log(`🔌 Socket.IO ready for WebSocket connections`);
   console.log(`🔒 Security: Helmet enabled`);
-  console.log(`⚡ Rate limiting: ${100} requests/min`);
+  console.log(`⚡ Rate limiting: User-based`);
 });
 
 module.exports = app;

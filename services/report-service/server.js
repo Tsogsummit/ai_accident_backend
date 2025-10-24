@@ -1,4 +1,4 @@
-// services/report-service/server.js
+// services/report-service/server.js - FIXED VERSION
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -14,13 +14,28 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'accident_db',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres'
+  password: process.env.DB_PASSWORD || 'postgres',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+pool.on('error', (err) => {
+  console.error('PostgreSQL pool error:', err);
 });
 
 // Redis
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379
+  port: process.env.REDIS_PORT || 6379,
+  retryStrategy: (times) => {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  }
+});
+
+redis.on('error', (err) => {
+  console.error('Redis error:', err);
 });
 
 // ============================================
@@ -52,21 +67,21 @@ app.get('/false-reports', async (req, res) => {
 
     if (accidentId) {
       query += ` AND fr.accident_id = $${paramIndex++}`;
-      params.push(accidentId);
+      params.push(parseInt(accidentId));
     }
 
     if (userId) {
       query += ` AND fr.user_id = $${paramIndex++}`;
-      params.push(userId);
+      params.push(parseInt(userId));
     }
 
     if (reasonId) {
       query += ` AND fr.reason_id = $${paramIndex++}`;
-      params.push(reasonId);
+      params.push(parseInt(reasonId));
     }
 
     query += ` ORDER BY fr.reported_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limit, offset);
+    params.push(parseInt(limit), parseInt(offset));
 
     const result = await pool.query(query, params);
 
@@ -78,7 +93,10 @@ app.get('/false-reports', async (req, res) => {
 
   } catch (error) {
     console.error('Get false reports error:', error);
-    res.status(500).json({ error: 'Буруу мэдээлэл авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Буруу мэдээлэл авахад алдаа гарлаа' 
+    });
   }
 });
 
@@ -91,6 +109,7 @@ app.post('/false-reports', async (req, res) => {
 
     if (!accidentId || !userId || !reasonId) {
       return res.status(400).json({
+        success: false,
         error: 'accidentId, userId, reasonId заавал байх ёстой'
       });
     }
@@ -125,7 +144,7 @@ app.post('/false-reports', async (req, res) => {
     await client.query('COMMIT');
 
     // Redis кэш устгах
-    const keys = await redis.keys('cache:/accidents*');
+    const keys = await redis.keys('accidents:*');
     if (keys.length > 0) {
       await redis.del(...keys);
     }
@@ -140,7 +159,10 @@ app.post('/false-reports', async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Create false report error:', error);
-    res.status(500).json({ error: 'Бүртгэхэд алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Бүртгэхэд алдаа гарлаа' 
+    });
   } finally {
     client.release();
   }
@@ -160,7 +182,10 @@ app.get('/false-reports/reasons', async (req, res) => {
 
   } catch (error) {
     console.error('Get report reasons error:', error);
-    res.status(500).json({ error: 'Шалтгаан авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Шалтгаан авахад алдаа гарлаа' 
+    });
   }
 });
 
@@ -168,14 +193,37 @@ app.get('/false-reports/reasons', async (req, res) => {
 // STATISTICS & REPORTS (Статистик тайлан)
 // ============================================
 
-// GET /reports/statistics - Ерөнхий статистик
+// ✅ FIXED: GET /reports/statistics - SQL injection prevention
 app.get('/reports/statistics', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // Dates default values
-    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const end = endDate || new Date().toISOString();
+    // ✅ FIXED: Validate and sanitize dates
+    let start, end;
+    
+    if (startDate) {
+      start = new Date(startDate);
+      if (isNaN(start.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу startDate формат'
+        });
+      }
+    } else {
+      start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    }
+    
+    if (endDate) {
+      end = new Date(endDate);
+      if (isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу endDate формат'
+        });
+      }
+    } else {
+      end = new Date();
+    }
 
     // Parallel queries for better performance
     const [
@@ -191,32 +239,32 @@ app.get('/reports/statistics', async (req, res) => {
       pool.query(`
         SELECT COUNT(*) as count
         FROM accidents
-        WHERE timestamp >= $1 AND timestamp <= $2
-      `, [start, end]),
+        WHERE accident_time >= $1 AND accident_time <= $2
+      `, [start.toISOString(), end.toISOString()]),
 
       // Хүндийн зэргээр
       pool.query(`
         SELECT severity, COUNT(*) as count
         FROM accidents
-        WHERE timestamp >= $1 AND timestamp <= $2
+        WHERE accident_time >= $1 AND accident_time <= $2
         GROUP BY severity
-      `, [start, end]),
+      `, [start.toISOString(), end.toISOString()]),
 
       // Статусаар
       pool.query(`
         SELECT status, COUNT(*) as count
         FROM accidents
-        WHERE timestamp >= $1 AND timestamp <= $2
+        WHERE accident_time >= $1 AND accident_time <= $2
         GROUP BY status
-      `, [start, end]),
+      `, [start.toISOString(), end.toISOString()]),
 
       // Эх үүсвэрээр
       pool.query(`
         SELECT source, COUNT(*) as count
         FROM accidents
-        WHERE timestamp >= $1 AND timestamp <= $2
+        WHERE accident_time >= $1 AND accident_time <= $2
         GROUP BY source
-      `, [start, end]),
+      `, [start.toISOString(), end.toISOString()]),
 
       // Топ байршил
       pool.query(`
@@ -225,25 +273,25 @@ app.get('/reports/statistics', async (req, res) => {
           ROUND(longitude::numeric, 3) as lng,
           COUNT(*) as count
         FROM accidents
-        WHERE timestamp >= $1 AND timestamp <= $2
+        WHERE accident_time >= $1 AND accident_time <= $2
         GROUP BY ROUND(latitude::numeric, 3), ROUND(longitude::numeric, 3)
         ORDER BY count DESC
         LIMIT 10
-      `, [start, end]),
+      `, [start.toISOString(), end.toISOString()]),
 
       // Өдрөөр статистик
       pool.query(`
         SELECT 
-          DATE(timestamp) as date,
+          DATE(accident_time) as date,
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE severity = 'severe') as severe,
           COUNT(*) FILTER (WHERE severity = 'moderate') as moderate,
           COUNT(*) FILTER (WHERE severity = 'minor') as minor
         FROM accidents
-        WHERE timestamp >= $1 AND timestamp <= $2
-        GROUP BY DATE(timestamp)
+        WHERE accident_time >= $1 AND accident_time <= $2
+        GROUP BY DATE(accident_time)
         ORDER BY date DESC
-      `, [start, end]),
+      `, [start.toISOString(), end.toISOString()]),
 
       // Камерын статистик
       pool.query(`
@@ -251,19 +299,22 @@ app.get('/reports/statistics', async (req, res) => {
           c.id,
           c.name,
           COUNT(a.id) as accident_count,
-          COUNT(a.id) FILTER (WHERE a.timestamp >= $1) as recent_accidents
+          COUNT(a.id) FILTER (WHERE a.accident_time >= $1) as recent_accidents
         FROM cameras c
         LEFT JOIN accidents a ON c.id = a.camera_id
         GROUP BY c.id, c.name
         ORDER BY accident_count DESC
         LIMIT 10
-      `, [start])
+      `, [start.toISOString()])
     ]);
 
     res.json({
       success: true,
       data: {
-        period: { start, end },
+        period: { 
+          start: start.toISOString(), 
+          end: end.toISOString() 
+        },
         summary: {
           totalAccidents: parseInt(totalAccidents.rows[0].count),
           bySeverity: accidentsBySeverity.rows.reduce((acc, row) => {
@@ -287,7 +338,11 @@ app.get('/reports/statistics', async (req, res) => {
 
   } catch (error) {
     console.error('Get statistics error:', error);
-    res.status(500).json({ error: 'Статистик авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Статистик авахад алдаа гарлаа',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -305,7 +360,7 @@ app.get('/reports/user-activity', async (req, res) => {
         COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END) as confirmed_reports,
         COUNT(DISTINCT CASE WHEN a.status = 'false_alarm' THEN a.id END) as false_alarms,
         COUNT(DISTINCT fr.id) as false_reports_made,
-        MAX(a.timestamp) as last_report_time
+        MAX(a.accident_time) as last_report_time
       FROM users u
       LEFT JOIN accidents a ON u.id = a.user_id
       LEFT JOIN false_reports fr ON u.id = fr.user_id
@@ -316,7 +371,7 @@ app.get('/reports/user-activity', async (req, res) => {
 
     if (userId) {
       query += ` WHERE u.id = $${paramIndex++}`;
-      params.push(userId);
+      params.push(parseInt(userId));
     }
 
     query += `
@@ -325,7 +380,7 @@ app.get('/reports/user-activity', async (req, res) => {
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `;
 
-    params.push(limit, offset);
+    params.push(parseInt(limit), parseInt(offset));
 
     const result = await pool.query(query, params);
 
@@ -336,7 +391,10 @@ app.get('/reports/user-activity', async (req, res) => {
 
   } catch (error) {
     console.error('Get user activity error:', error);
-    res.status(500).json({ error: 'Идэвх авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Идэвх авахад алдаа гарлаа' 
+    });
   }
 });
 
@@ -353,11 +411,11 @@ app.get('/reports/camera-performance', async (req, res) => {
         c.status,
         c.is_online,
         COUNT(DISTINCT a.id) as total_accidents,
-        COUNT(DISTINCT CASE WHEN a.timestamp >= NOW() - INTERVAL '24 hours' THEN a.id END) as accidents_24h,
-        COUNT(DISTINCT CASE WHEN a.timestamp >= NOW() - INTERVAL '7 days' THEN a.id END) as accidents_7d,
+        COUNT(DISTINCT CASE WHEN a.accident_time >= NOW() - INTERVAL '24 hours' THEN a.id END) as accidents_24h,
+        COUNT(DISTINCT CASE WHEN a.accident_time >= NOW() - INTERVAL '7 days' THEN a.id END) as accidents_7d,
         COUNT(DISTINCT v.id) as total_videos,
         AVG(aid.confidence) as avg_confidence,
-        MAX(a.timestamp) as last_accident_time,
+        MAX(a.accident_time) as last_accident_time,
         MAX(cl.timestamp) as last_log_time
       FROM cameras c
       LEFT JOIN accidents a ON c.id = a.camera_id
@@ -371,7 +429,7 @@ app.get('/reports/camera-performance', async (req, res) => {
 
     if (cameraId) {
       query += ` WHERE c.id = $${paramIndex++}`;
-      params.push(cameraId);
+      params.push(parseInt(cameraId));
     }
 
     query += `
@@ -388,17 +446,44 @@ app.get('/reports/camera-performance', async (req, res) => {
 
   } catch (error) {
     console.error('Get camera performance error:', error);
-    res.status(500).json({ error: 'Гүйцэтгэл авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Гүйцэтгэл авахад алдаа гарлаа' 
+    });
   }
 });
 
-// GET /reports/ai-accuracy - AI нарийвчлалын тайлан
+// ✅ FIXED: GET /reports/ai-accuracy - Parameterized queries
 app.get('/reports/ai-accuracy', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const end = endDate || new Date().toISOString();
+    // ✅ FIXED: Validate dates
+    let start, end;
+    
+    if (startDate) {
+      start = new Date(startDate);
+      if (isNaN(start.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу startDate формат'
+        });
+      }
+    } else {
+      start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    }
+    
+    if (endDate) {
+      end = new Date(endDate);
+      if (isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу endDate формат'
+        });
+      }
+    } else {
+      end = new Date();
+    }
 
     const result = await pool.query(`
       SELECT 
@@ -417,7 +502,7 @@ app.get('/reports/ai-accuracy', async (req, res) => {
       LEFT JOIN accidents a ON v.id = a.video_id
       WHERE v.uploaded_at >= $1 AND v.uploaded_at <= $2
         AND v.status = 'completed'
-    `, [start, end]);
+    `, [start.toISOString(), end.toISOString()]);
 
     const stats = result.rows[0];
 
@@ -426,14 +511,17 @@ app.get('/reports/ai-accuracy', async (req, res) => {
     const confirmed = parseInt(stats.confirmed_accidents) || 0;
     const falseAlarms = parseInt(stats.false_alarms) || 0;
     
-    const accuracy = totalProcessed > 0 
+    const accuracy = totalProcessed > 0 && (confirmed + falseAlarms) > 0
       ? ((confirmed / (confirmed + falseAlarms)) * 100).toFixed(2)
       : 0;
 
     res.json({
       success: true,
       data: {
-        period: { start, end },
+        period: { 
+          start: start.toISOString(), 
+          end: end.toISOString() 
+        },
         processing: {
           totalVideos: parseInt(stats.total_videos_processed),
           highConfidence: parseInt(stats.high_confidence),
@@ -456,7 +544,10 @@ app.get('/reports/ai-accuracy', async (req, res) => {
 
   } catch (error) {
     console.error('Get AI accuracy error:', error);
-    res.status(500).json({ error: 'AI нарийвчлал авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'AI нарийвчлал авахад алдаа гарлаа' 
+    });
   }
 });
 
@@ -465,8 +556,32 @@ app.get('/reports/export', async (req, res) => {
   try {
     const { type = 'accidents', startDate, endDate } = req.query;
 
-    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const end = endDate || new Date().toISOString();
+    // ✅ FIXED: Validate dates
+    let start, end;
+    
+    if (startDate) {
+      start = new Date(startDate);
+      if (isNaN(start.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу startDate формат'
+        });
+      }
+    } else {
+      start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    }
+    
+    if (endDate) {
+      end = new Date(endDate);
+      if (isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу endDate формат'
+        });
+      }
+    } else {
+      end = new Date();
+    }
 
     let query;
     let filename;
@@ -482,14 +597,14 @@ app.get('/reports/export', async (req, res) => {
             a.severity,
             a.status,
             a.source,
-            a.timestamp,
+            a.accident_time,
             u.name as reported_by,
             c.name as camera_name
           FROM accidents a
           LEFT JOIN users u ON a.user_id = u.id
           LEFT JOIN cameras c ON a.camera_id = c.id
-          WHERE a.timestamp >= $1 AND a.timestamp <= $2
-          ORDER BY a.timestamp DESC
+          WHERE a.accident_time >= $1 AND a.accident_time <= $2
+          ORDER BY a.accident_time DESC
         `;
         filename = 'accidents_report.csv';
         break;
@@ -521,7 +636,7 @@ app.get('/reports/export', async (req, res) => {
             COUNT(a.id) as total_reports
           FROM users u
           LEFT JOIN accidents a ON u.id = a.user_id
-          WHERE a.timestamp >= $1 AND a.timestamp <= $2
+          WHERE a.accident_time >= $1 AND a.accident_time <= $2
           GROUP BY u.id, u.name, u.phone
           ORDER BY total_reports DESC
         `;
@@ -529,42 +644,85 @@ app.get('/reports/export', async (req, res) => {
         break;
 
       default:
-        return res.status(400).json({ error: 'Буруу тайлангийн төрөл' });
+        return res.status(400).json({ 
+          success: false,
+          error: 'Буруу тайлангийн төрөл' 
+        });
     }
 
-    const result = await pool.query(query, [start, end]);
+    const result = await pool.query(query, [start.toISOString(), end.toISOString()]);
 
     // Convert to CSV
     const rows = result.rows;
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'Өгөгдөл олдсонгүй' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Өгөгдөл олдсонгүй' 
+      });
     }
 
     const headers = Object.keys(rows[0]).join(',');
     const csvData = [
       headers,
-      ...rows.map(row => Object.values(row).map(val => 
-        typeof val === 'string' && val.includes(',') ? `"${val}"` : val
-      ).join(','))
+      ...rows.map(row => Object.values(row).map(val => {
+        // Escape commas and quotes
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      }).join(','))
     ].join('\n');
 
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(csvData);
+    res.send('\uFEFF' + csvData); // UTF-8 BOM for Excel
 
   } catch (error) {
     console.error('Export report error:', error);
-    res.status(500).json({ error: 'Тайлан татахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Тайлан татахад алдаа гарлаа' 
+    });
   }
 });
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({
+app.get('/health', async (req, res) => {
+  const health = {
     status: 'healthy',
     service: 'report-service',
-    timestamp: new Date().toISOString()
-  });
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  };
+
+  try {
+    await pool.query('SELECT 1');
+    health.database = 'connected';
+  } catch (err) {
+    health.database = 'disconnected';
+    health.status = 'unhealthy';
+  }
+
+  try {
+    await redis.ping();
+    health.redis = 'connected';
+  } catch (err) {
+    health.redis = 'disconnected';
+    health.status = 'unhealthy';
+  }
+
+  const statusCode = health.status === 'healthy' ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  await pool.end();
+  await redis.quit();
+  process.exit(0);
 });
 
 app.listen(PORT, () => {
