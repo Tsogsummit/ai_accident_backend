@@ -1,30 +1,31 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # ==========================================
+  # DATABASE SERVICES
+  # ==========================================
+  
   postgres:
-    image: postgis/postgis:15-3.4-alpine
+    image: postgis/postgis:15-3.3
     container_name: accident_postgres
     environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-accident_db}
+      POSTGRES_DB: accident_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - accident_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
-    networks:
-      - accident_network
-    restart: unless-stopped
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: accident_redis
@@ -34,20 +35,16 @@ services:
       - redis_data:/data
     networks:
       - accident_network
-    # ✅ FIXED: Redis нууц үгтэй
-    command: >
-      redis-server 
-      --requirepass ${REDIS_PASSWORD:-changeme123}
-      --appendonly yes
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
     healthcheck:
-      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-changeme123}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 5s
+      timeout: 3s
       retries: 5
 
-  # API Gateway
+  # ==========================================
+  # API GATEWAY
+  # ==========================================
+  
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -56,39 +53,32 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
+      ALLOWED_ORIGINS: "*"
+      
+      # Service URLs
       USER_SERVICE_URL: http://user-service:3001
       ACCIDENT_SERVICE_URL: http://accident-service:3002
       VIDEO_SERVICE_URL: http://video-service:3003
-      AI_SERVICE_URL: http://ai-service:3004
+      AI_SERVICE_URL: http://ai-detection-service:3004
       NOTIFICATION_SERVICE_URL: http://notification-service:3005
       MAP_SERVICE_URL: http://map-service:3006
       REPORT_SERVICE_URL: http://report-service:3007
       CAMERA_SERVICE_URL: http://camera-service:3008
-      ADMIN_SERVICE_URL: http://admin-service:3009
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      user-service:
-        condition: service_started
-      accident-service:
-        condition: service_started
     networks:
       - accident_network
+    depends_on:
+      - user-service
+      - accident-service
+      - video-service
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # User Service
+  # ==========================================
+  # MICROSERVICES
+  # ==========================================
+
   user-service:
     build:
       context: ./services/user-service
@@ -97,33 +87,31 @@ services:
     ports:
       - "3001:3001"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3001
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
-      JWT_SECRET: ${JWT_SECRET}
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # Accident Service
   accident-service:
     build:
       context: ./services/accident-service
@@ -132,34 +120,32 @@ services:
     ports:
       - "3002:3002"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3002
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
-      JWT_SECRET: ${JWT_SECRET}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
+      ALLOWED_ORIGINS: "*"
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # Video Service
   video-service:
     build:
       context: ./services/video-service
@@ -168,34 +154,30 @@ services:
     ports:
       - "3003:3003"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3003
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
-      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
-      GCP_KEY_FILE: /app/gcp-key.json
-      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Google Cloud (optional - тохируулна уу)
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_KEY_FILE: ${GCP_KEY_FILE:-}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
     volumes:
-      - ./gcp-key.json:/app/gcp-key.json:ro
+      - video_uploads:/app/uploads
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # AI Detection Service
-  ai-service:
+  ai-detection-service:
     build:
       context: ./services/ai-detection-service
       dockerfile: Dockerfile
@@ -204,35 +186,28 @@ services:
       - "3004:3004"
     environment:
       PORT: 3004
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
-      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Model
       MODEL_PATH: /app/models/yolov8n.pt
-      YOLO_CONFIG_DIR: /tmp/Ultralytics
-      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
-    volumes:
-      - ./models:/app/models:ro
-      - ./gcp-key.json:/app/gcp-key.json:ro
-      - ./tmp_ultralytics:/tmp/Ultralytics
+      
+      # Google Cloud (optional)
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    platform: linux/amd64
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
-  # Notification Service
   notification-service:
     build:
       context: ./services/notification-service
@@ -241,37 +216,34 @@ services:
     ports:
       - "3005:3005"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3005
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
-      FIREBASE_CREDENTIALS: /app/firebase.json
-      FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
-    volumes:
-      - ./firebase.json:/app/firebase.json:ro
+      
+      # Firebase (optional)
+      FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-}
+      FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL:-}
+      
+      ALLOWED_ORIGINS: "*"
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # Map Service
   map-service:
     build:
       context: ./services/map-service
@@ -280,33 +252,31 @@ services:
     ports:
       - "3006:3006"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3006
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
-      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+      
+      # Google Maps API (optional)
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # Report Service
   report-service:
     build:
       context: ./services/report-service
@@ -315,32 +285,58 @@ services:
     ports:
       - "3007:3007"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3007
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
+  admin-service:
+    build: 
+      context: ./services/admin-service
+      dockerfile: Dockerfile
+    container_name: accident_admin_service
+    ports:
+      - "3009:3009"
+    environment:
+      PORT: 3009
+      NODE_ENV: production
+      
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
+      
+      ALLOWED_ORIGINS: "*"
     networks:
       - accident_network
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3007/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    
 
-  # Camera Service
   camera-service:
     build:
       context: ./services/camera-service
@@ -349,79 +345,51 @@ services:
     ports:
       - "3008:3008"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3008
+      NODE_ENV: production
+      
+      # Database
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
-      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
-      GCP_KEY_FILE: /app/gcp-key.json
-      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
-      CAMERA_STREAM_INTERVAL: ${CAMERA_STREAM_INTERVAL:-300000}
-      CAMERA_STREAM_DURATION: ${CAMERA_STREAM_DURATION:-30}
-      CAMERA_HEALTH_CHECK_INTERVAL: ${CAMERA_HEALTH_CHECK_INTERVAL:-60000}
-    volumes:
-      - ./gcp-key.json:/app/gcp-key.json:ro
+      DB_NAME: accident_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      
+      # Camera settings
+      STREAM_INTERVAL: 300
+      STREAM_DURATION: 30
+      HEALTH_CHECK_INTERVAL: 60
+      TEMP_DIR: /tmp
+      
+      # Google Cloud (optional)
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
+      PUBSUB_TOPIC: ${PUBSUB_TOPIC:-video-processing}
+    networks:
+      - accident_network
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - accident_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # ✅ NEW: Admin Dashboard Service
-  admin-service:
-    build:
-      context: ./services/admin-service
-      dockerfile: Dockerfile
-    container_name: accident_admin_service
-    ports:
-      - "3009:3009"
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      PORT: 3009
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-accident_db}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
-      JWT_SECRET: ${JWT_SECRET}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - accident_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3009/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
+# ==========================================
+# NETWORKS
+# ==========================================
 
 networks:
   accident_network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
+    name: accident_network
+
+# ==========================================
+# VOLUMES
+# ==========================================
+
+volumes:
+  postgres_data:
+    name: accident_postgres_data
+  redis_data:
+    name: accident_redis_data
+  video_uploads:
+    name: accident_video_uploads

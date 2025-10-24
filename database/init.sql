@@ -453,3 +453,45 @@ INSERT INTO cameras (
 
 -- ID авах (дараачийн алхамд хэрэг болно)
 SELECT id, name FROM cameras WHERE name LIKE '%32770%';
+
+-- Cameras хүснэгт (FIXED - updated_at, resolution нэмсэн)
+CREATE TABLE IF NOT EXISTS cameras (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    location VARCHAR(255) NOT NULL,
+    latitude DECIMAL(10, 8) NOT NULL,
+    longitude DECIMAL(11, 8) NOT NULL,
+    ip_address VARCHAR(45),
+    stream_url TEXT,
+    status VARCHAR(20) DEFAULT 'active',
+    is_online BOOLEAN DEFAULT false,
+    last_active TIMESTAMP,
+    resolution VARCHAR(10) DEFAULT '480p',  -- ADDED
+    fps INTEGER DEFAULT 25,                 -- ADDED
+    description TEXT,                        -- ADDED
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()      -- ADDED
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_cameras_location ON cameras USING GIST (
+    ll_to_earth(latitude, longitude)
+);
+CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status) WHERE status = 'active';
+
+-- UB Traffic камер нэмэх
+INSERT INTO cameras (
+  name, location, stream_url, status, resolution, fps, 
+  description, latitude, longitude, is_online
+) VALUES (
+  'UB Traffic - Камер 32770',
+  'Улаанбаатар',
+  'https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8',
+  'active',
+  '480p',
+  25,
+  'Улаанбаатарын авто замын камер',
+  47.9184,
+  106.9057,
+  true
+) ON CONFLICT DO NOTHING;
