@@ -34,10 +34,15 @@ services:
       - redis_data:/data
     networks:
       - accident_network
-    # ⚠️ PASSWORD УСТГАСАН - command хоосон
-    command: redis-server --appendonly yes
+    # ✅ FIXED: Redis нууц үгтэй
+    command: >
+      redis-server 
+      --requirepass ${REDIS_PASSWORD:-changeme123}
+      --appendonly yes
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-changeme123}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,6 +67,7 @@ services:
       MAP_SERVICE_URL: http://map-service:3006
       REPORT_SERVICE_URL: http://report-service:3007
       CAMERA_SERVICE_URL: http://camera-service:3008
+      ADMIN_SERVICE_URL: http://admin-service:3009
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     depends_on:
       postgres:
@@ -100,7 +106,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
       postgres:
@@ -135,7 +141,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     depends_on:
@@ -225,14 +231,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    # GPU support (optional - uncomment if GPU available)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
 
   # Notification Service
   notification-service:
@@ -252,7 +250,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
       FIREBASE_CREDENTIALS: /app/firebase.json
       FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
@@ -291,7 +289,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
     depends_on:
       postgres:
@@ -326,7 +324,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
     depends_on:
       postgres:
         condition: service_healthy
@@ -375,6 +373,41 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ✅ NEW: Admin Dashboard Service
+  admin-service:
+    build:
+      context: ./services/admin-service
+      dockerfile: Dockerfile
+    container_name: accident_admin_service
+    ports:
+      - "3009:3009"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3009
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-accident_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme123}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - accident_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3009/health"]
       interval: 30s
       timeout: 10s
       retries: 3
