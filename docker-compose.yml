@@ -204,7 +204,7 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
       GCP_KEY_FILE: ${GCP_KEY_FILE:-}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      # GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       
       # Upload limits
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-52428800}
@@ -249,13 +249,14 @@ services:
       AI_FRAME_INTERVAL: ${AI_FRAME_INTERVAL:-2}
       
       # Google Cloud (optional)
+      GOOGLE_APPLICATION_CREDENTIALS: ${FIREBASE_CREDENTIALS:-}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
       PUBSUB_TOPIC: ${PUBSUB_TOPIC:-video-processing}
     volumes:
       - ai_models:/app/models
       - ${GCP_KEY_FILE:-./gcp-key.json}:/app/gcp-key.json:ro
+      - ./firebase.json:/app/firebase.json:ro
     networks:
       - accident_network
     depends_on:
@@ -289,7 +290,7 @@ services:
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       
       # Firebase (optional)
       FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-}
