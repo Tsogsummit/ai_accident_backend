@@ -2,7 +2,7 @@ version: '3.8'
 
 # ==========================================
 # ACCIDENT DETECTION SYSTEM
-# Docker Compose Configuration
+# Docker Compose Configuration - FIXED VERSION
 # ==========================================
 
 services:
@@ -32,18 +32,39 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ✅ FIXED: Redis with proper health check
   redis:
     image: redis:7-alpine
     container_name: accident_redis
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    # Only use password if REDIS_PASSWORD is set
+    command: >
+      sh -c "
+      if [ -n \"$$REDIS_PASSWORD\" ]; then
+        echo 'Starting Redis with password...';
+        redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\";
+      else
+        echo 'Starting Redis without password...';
+        redis-server --appendonly yes;
+      fi
+      "
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
       - accident_network
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    # Health check that works with or without password
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: >
+        sh -c "
+        if [ -n \"$$REDIS_PASSWORD\" ]; then
+          redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG;
+        else
+          redis-cli ping | grep -q PONG;
+        fi
+        "
       interval: 10s
       timeout: 3s
       retries: 5
@@ -204,7 +225,6 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
       GCP_KEY_FILE: ${GCP_KEY_FILE:-}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
-      # GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       
       # Upload limits
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-52428800}
@@ -290,7 +310,7 @@ services:
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      # REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       
       # Firebase (optional)
       FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-}
