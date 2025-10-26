@@ -1,13 +1,21 @@
-// services/admin-service/server.js
+// services/admin-service/server.js - IMPROVED VERSION
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
+const helmet = require('helmet');
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3009;
 
+// Security middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  credentials: true
+}));
 app.use(express.json());
 
 // PostgreSQL
@@ -33,7 +41,12 @@ const redis = new Redis({
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
 
+redis.on('error', (err) => {
+  console.error('Redis error:', err);
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
+const BCRYPT_ROUNDS = 12;
 
 // ==========================================
 // MIDDLEWARE
@@ -63,36 +76,180 @@ const authenticateAdmin = (req, res, next) => {
 };
 
 // ==========================================
+// ADMIN REGISTRATION (Development Only)
+// ==========================================
+
+/**
+ * POST /admin/register
+ * Development-д admin бүртгэх
+ * PRODUCTION-д идэвхгүй байх ёстой!
+ */
+app.post('/admin/register', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    // Production-д хориглох
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin registration is disabled in production'
+      });
+    }
+
+    const { username, password, email, name, phone } = req.body;
+
+    // Validation
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username болон password шаардлагатай'
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Нууц үг 8-аас дээш тэмдэгт байх ёстой'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // Check if admin username exists
+    const existingAdmin = await client.query(
+      'SELECT id FROM admins WHERE username = $1',
+      [username]
+    );
+
+    if (existingAdmin.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        error: 'Admin username аль хэдийн бүртгэгдсэн байна'
+      });
+    }
+
+    // Check if user phone/email exists
+    if (phone || email) {
+      const existingUser = await client.query(
+        'SELECT id FROM users WHERE phone = $1 OR email = $2',
+        [phone, email]
+      );
+
+      if (existingUser.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          success: false,
+          error: 'Утас эсвэл имэйл аль хэдийн бүртгэгдсэн байна'
+        });
+      }
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    // Create user
+    const userResult = await client.query(`
+      INSERT INTO users (phone, email, name, password_hash, role, status)
+      VALUES ($1, $2, $3, $4, 'admin', 'active')
+      RETURNING id, phone, email, name, role
+    `, [
+      phone || `+976${Date.now().toString().slice(-8)}`,
+      email || `admin${Date.now()}@accident.mn`,
+      name || username,
+      passwordHash
+    ]);
+
+    const user = userResult.rows[0];
+
+    // Create admin entry
+    const adminResult = await client.query(`
+      INSERT INTO admins (user_id, username, permissions)
+      VALUES ($1, $2, '["all"]'::jsonb)
+      RETURNING id, username, permissions
+    `, [user.id, username]);
+
+    const admin = adminResult.rows[0];
+
+    await client.query('COMMIT');
+
+    console.log(`✅ Admin created: ${username}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin амжилттай бүртгэгдлээ',
+      admin: {
+        id: admin.id,
+        username: admin.username,
+        userId: user.id,
+        permissions: admin.permissions
+      }
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Admin registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Admin бүртгэхэд алдаа гарлаа',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ==========================================
 // ADMIN AUTHENTICATION
 // ==========================================
 
-// Admin login
+/**
+ * POST /admin/login
+ * Admin нэвтрэх
+ */
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
     if (!username || !password) {
-      return res.status(400).json({ success: false, error: 'Username болон password шаардлагатай' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Username болон password шаардлагатай' 
+      });
     }
 
     // Find admin
     const result = await pool.query(`
-      SELECT a.*, u.password_hash, u.role 
+      SELECT a.*, u.password_hash, u.role, u.status, u.name, u.email
       FROM admins a
       JOIN users u ON a.user_id = u.id
-      WHERE a.username = $1 AND u.role = 'admin' AND u.status = 'active'
+      WHERE a.username = $1 AND u.role = 'admin'
     `, [username]);
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ success: false, error: 'Нэвтрэх нэр эсвэл нууц үг буруу' });
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Нэвтрэх нэр эсвэл нууц үг буруу' 
+      });
     }
 
     const admin = result.rows[0];
 
+    // Check if account is active
+    if (admin.status !== 'active') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Таны эрх хаагдсан байна' 
+      });
+    }
+
     // Verify password
     const isValid = await bcrypt.compare(password, admin.password_hash);
     if (!isValid) {
-      return res.status(401).json({ success: false, error: 'Нэвтрэх нэр эсвэл нууц үг буруу' });
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Нэвтрэх нэр эсвэл нууц үг буруу' 
+      });
     }
 
     // Generate token
@@ -109,21 +266,32 @@ app.post('/admin/login', async (req, res) => {
     );
 
     // Update last login
-    await pool.query('UPDATE admins SET last_login = NOW() WHERE id = $1', [admin.id]);
+    await pool.query(
+      'UPDATE admins SET last_login = NOW() WHERE id = $1',
+      [admin.id]
+    );
+
+    console.log(`✅ Admin logged in: ${username}`);
 
     res.json({
       success: true,
+      message: 'Амжилттай нэвтэрлээ',
       token,
       admin: {
         id: admin.id,
         username: admin.username,
+        name: admin.name,
+        email: admin.email,
         permissions: admin.permissions,
       }
     });
 
   } catch (error) {
     console.error('Admin login error:', error);
-    res.status(500).json({ success: false, error: 'Нэвтрэхэд алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Нэвтрэхэд алдаа гарлаа' 
+    });
   }
 });
 
@@ -131,7 +299,6 @@ app.post('/admin/login', async (req, res) => {
 // DASHBOARD STATISTICS
 // ==========================================
 
-// Main dashboard stats
 app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
   try {
     const cacheKey = 'admin:dashboard:stats';
@@ -145,7 +312,6 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
       });
     }
 
-    // Parallel queries for better performance
     const [
       totalAccidents,
       activeAccidents,
@@ -156,37 +322,17 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
       onlineCameras,
       totalVideos,
       pendingVideos,
-      aiAccuracy,
-      recentActivities
+      aiAccuracy
     ] = await Promise.all([
-      // Total accidents
       pool.query('SELECT COUNT(*) as count FROM accidents'),
-      
-      // Active accidents
       pool.query("SELECT COUNT(*) as count FROM accidents WHERE status IN ('reported', 'confirmed')"),
-      
-      // Today's accidents
       pool.query("SELECT COUNT(*) as count FROM accidents WHERE accident_time >= CURRENT_DATE"),
-      
-      // Total users
       pool.query('SELECT COUNT(*) as count FROM users'),
-      
-      // Active users
       pool.query("SELECT COUNT(*) as count FROM users WHERE status = 'active'"),
-      
-      // Total cameras
       pool.query('SELECT COUNT(*) as count FROM cameras'),
-      
-      // Online cameras
       pool.query('SELECT COUNT(*) as count FROM cameras WHERE is_online = true'),
-      
-      // Total videos
       pool.query('SELECT COUNT(*) as count FROM videos'),
-      
-      // Pending videos
       pool.query("SELECT COUNT(*) as count FROM videos WHERE status IN ('uploading', 'processing')"),
-      
-      // AI accuracy (last 100 detections)
       pool.query(`
         SELECT 
           COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END) as confirmed,
@@ -197,21 +343,6 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
         LEFT JOIN ai_detections aid ON v.id = aid.video_id
         WHERE a.source = 'camera'
           AND a.accident_time >= NOW() - INTERVAL '7 days'
-      `),
-      
-      // Recent activities
-      pool.query(`
-        SELECT 
-          'accident' as type,
-          a.id,
-          a.severity,
-          a.status,
-          a.accident_time as timestamp,
-          u.name as user_name
-        FROM accidents a
-        LEFT JOIN users u ON a.user_id = u.id
-        ORDER BY a.accident_time DESC
-        LIMIT 10
       `)
     ]);
 
@@ -245,11 +376,9 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
         avgConfidence: parseFloat(aiStats.avg_confidence)?.toFixed(2) || 0,
         confirmed,
         falseAlarms,
-      },
-      recentActivities: recentActivities.rows,
+      }
     };
 
-    // Cache for 1 minute
     await redis.setex(cacheKey, 60, JSON.stringify(stats));
 
     res.json({
@@ -260,59 +389,10 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
 
   } catch (error) {
     console.error('Dashboard stats error:', error);
-    res.status(500).json({ success: false, error: 'Статистик авахад алдаа гарлаа' });
-  }
-});
-
-// Time-series data for charts
-app.get('/admin/dashboard/charts', authenticateAdmin, async (req, res) => {
-  try {
-    const { period = '7d' } = req.query;
-    
-    const interval = period === '24h' ? '1 hour' : '1 day';
-    const range = period === '24h' ? '24 hours' : period === '30d' ? '30 days' : '7 days';
-
-    const [accidentsTrend, severityDistribution, statusDistribution] = await Promise.all([
-      // Accidents trend
-      pool.query(`
-        SELECT 
-          DATE_TRUNC('${interval}', accident_time) as time,
-          COUNT(*) as count
-        FROM accidents
-        WHERE accident_time >= NOW() - INTERVAL '${range}'
-        GROUP BY time
-        ORDER BY time
-      `),
-
-      // Severity distribution
-      pool.query(`
-        SELECT severity, COUNT(*) as count
-        FROM accidents
-        WHERE accident_time >= NOW() - INTERVAL '${range}'
-        GROUP BY severity
-      `),
-
-      // Status distribution
-      pool.query(`
-        SELECT status, COUNT(*) as count
-        FROM accidents
-        WHERE accident_time >= NOW() - INTERVAL '${range}'
-        GROUP BY status
-      `)
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        accidentsTrend: accidentsTrend.rows,
-        severityDistribution: severityDistribution.rows,
-        statusDistribution: statusDistribution.rows,
-      }
+    res.status(500).json({ 
+      success: false, 
+      error: 'Статистик авахад алдаа гарлаа' 
     });
-
-  } catch (error) {
-    console.error('Dashboard charts error:', error);
-    res.status(500).json({ success: false, error: 'Графикийн өгөгдөл авахад алдаа гарлаа' });
   }
 });
 
@@ -320,7 +400,6 @@ app.get('/admin/dashboard/charts', authenticateAdmin, async (req, res) => {
 // ACCIDENT MANAGEMENT
 // ==========================================
 
-// Get all accidents with filters and pagination
 app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
   try {
     const { 
@@ -328,10 +407,7 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
       limit = 50, 
       status, 
       severity, 
-      source,
-      startDate,
-      endDate,
-      search 
+      source 
     } = req.query;
 
     const offset = (page - 1) * limit;
@@ -340,7 +416,6 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
       SELECT 
         a.*,
         u.name as reported_by_name,
-        u.phone as reported_by_phone,
         c.name as camera_name,
         COUNT(DISTINCT fr.id) as false_report_count
       FROM accidents a
@@ -368,24 +443,8 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
       params.push(source);
     }
 
-    if (startDate) {
-      query += ` AND a.accident_time >= $${paramIndex++}`;
-      params.push(startDate);
-    }
-
-    if (endDate) {
-      query += ` AND a.accident_time <= $${paramIndex++}`;
-      params.push(endDate);
-    }
-
-    if (search) {
-      query += ` AND (a.description ILIKE $${paramIndex++} OR u.name ILIKE $${paramIndex++})`;
-      params.push(`%${search}%`, `%${search}%`);
-      paramIndex++;
-    }
-
     query += `
-      GROUP BY a.id, u.name, u.phone, c.name
+      GROUP BY a.id, u.name, c.name
       ORDER BY a.accident_time DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `;
@@ -394,7 +453,7 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
 
     const [accidents, totalCount] = await Promise.all([
       pool.query(query, params),
-      pool.query('SELECT COUNT(*) FROM accidents WHERE 1=1')
+      pool.query('SELECT COUNT(*) FROM accidents')
     ]);
 
     res.json({
@@ -410,15 +469,17 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
 
   } catch (error) {
     console.error('Get accidents error:', error);
-    res.status(500).json({ success: false, error: 'Ослын мэдээлэл авахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Ослын мэдээлэл авахад алдаа гарлаа' 
+    });
   }
 });
 
-// Update accident status
 app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, note } = req.body;
+    const { status } = req.body;
 
     const validStatuses = ['reported', 'confirmed', 'resolved', 'false_alarm'];
     if (!validStatuses.includes(status)) {
@@ -436,7 +497,6 @@ app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
     }
 
-    // Clear cache
     await redis.del('admin:dashboard:stats');
 
     res.json({
@@ -451,250 +511,41 @@ app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Delete accident
-app.delete('/admin/accidents/:id', authenticateAdmin, async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    const { id } = req.params;
-
-    await client.query('BEGIN');
-
-    // Delete related records first
-    await client.query('DELETE FROM false_reports WHERE accident_id = $1', [id]);
-    await client.query('DELETE FROM notifications WHERE accident_id = $1', [id]);
-    await client.query('DELETE FROM map_markers WHERE accident_id = $1', [id]);
-
-    // Delete accident
-    const result = await client.query('DELETE FROM accidents WHERE id = $1 RETURNING *', [id]);
-
-    if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
-    }
-
-    await client.query('COMMIT');
-
-    // Clear cache
-    await redis.del('admin:dashboard:stats');
-
-    res.json({
-      success: true,
-      message: 'Осол устгагдлаа'
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Delete accident error:', error);
-    res.status(500).json({ success: false, error: 'Устгахад алдаа гарлаа' });
-  } finally {
-    client.release();
-  }
-});
-
 // ==========================================
 // USER MANAGEMENT
 // ==========================================
 
-// Get all users
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 50, status, role, search } = req.query;
+    const { page = 1, limit = 50 } = req.query;
     const offset = (page - 1) * limit;
 
-    let query = `
-      SELECT 
-        u.*,
-        us.total_reports,
-        us.confirmed_reports,
-        us.false_reports_made
-      FROM users u
-      LEFT JOIN user_statistics us ON u.id = us.id
-      WHERE 1=1
-    `;
-
-    const params = [];
-    let paramIndex = 1;
-
-    if (status) {
-      query += ` AND u.status = $${paramIndex++}`;
-      params.push(status);
-    }
-
-    if (role) {
-      query += ` AND u.role = $${paramIndex++}`;
-      params.push(role);
-    }
-
-    if (search) {
-      query += ` AND (u.name ILIKE $${paramIndex++} OR u.phone ILIKE $${paramIndex++} OR u.email ILIKE $${paramIndex++})`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-      paramIndex += 2;
-    }
-
-    query += ` ORDER BY u.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(parseInt(limit), parseInt(offset));
-
     const [users, totalCount] = await Promise.all([
-      pool.query(query, params),
+      pool.query(`
+        SELECT 
+          u.id, u.phone, u.email, u.name, u.status, u.role, u.created_at,
+          us.total_reports, us.confirmed_reports
+        FROM users u
+        LEFT JOIN user_statistics us ON u.id = us.id
+        ORDER BY u.created_at DESC
+        LIMIT $1 OFFSET $2
+      `, [limit, offset]),
       pool.query('SELECT COUNT(*) FROM users')
     ]);
 
-    // Remove password hashes
-    const sanitizedUsers = users.rows.map(user => {
-      const { password_hash, ...rest } = user;
-      return rest;
-    });
-
     res.json({
       success: true,
-      data: sanitizedUsers,
+      data: users.rows,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: parseInt(totalCount.rows[0].count),
-        totalPages: Math.ceil(parseInt(totalCount.rows[0].count) / parseInt(limit))
+        total: parseInt(totalCount.rows[0].count)
       }
     });
 
   } catch (error) {
     console.error('Get users error:', error);
-    res.status(500).json({ success: false, error: 'Хэрэглэгчийн мэдээлэл авахад алдаа гарлаа' });
-  }
-});
-
-// Update user status
-app.put('/admin/users/:id/status', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const validStatuses = ['active', 'inactive', 'suspended'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Буруу төлөв' });
-    }
-
-    const result = await pool.query(`
-      UPDATE users 
-      SET status = $1, updated_at = NOW()
-      WHERE id = $2
-      RETURNING id, name, phone, email, status, role
-    `, [status, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Хэрэглэгч олдсонгүй' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Төлөв шинэчлэгдлээ',
-      data: result.rows[0]
-    });
-
-  } catch (error) {
-    console.error('Update user status error:', error);
-    res.status(500).json({ success: false, error: 'Төлөв шинэчлэхэд алдаа гарлаа' });
-  }
-});
-
-// ==========================================
-// CAMERA MANAGEMENT
-// ==========================================
-
-// Get all cameras
-app.get('/admin/cameras', authenticateAdmin, async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        c.*,
-        cs.total_accidents,
-        cs.accidents_24h,
-        cs.last_accident_time,
-        cs.last_log_time
-      FROM cameras c
-      LEFT JOIN camera_statistics cs ON c.id = cs.id
-      ORDER BY c.created_at DESC
-    `);
-
-    res.json({
-      success: true,
-      data: result.rows
-    });
-
-  } catch (error) {
-    console.error('Get cameras error:', error);
-    res.status(500).json({ success: false, error: 'Камерын мэдээлэл авахад алдаа гарлаа' });
-  }
-});
-
-// Update camera status
-app.put('/admin/cameras/:id/status', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const validStatuses = ['active', 'inactive', 'maintenance'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Буруу төлөв' });
-    }
-
-    const result = await pool.query(`
-      UPDATE cameras 
-      SET status = $1
-      WHERE id = $2
-      RETURNING *
-    `, [status, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Камер олдсонгүй' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Камерын төлөв шинэчлэгдлээ',
-      data: result.rows[0]
-    });
-
-  } catch (error) {
-    console.error('Update camera status error:', error);
-    res.status(500).json({ success: false, error: 'Төлөв шинэчлэхэд алдаа гарлаа' });
-  }
-});
-
-// ==========================================
-// SYSTEM LOGS
-// ==========================================
-
-app.get('/admin/logs', authenticateAdmin, async (req, res) => {
-  try {
-    const { limit = 100, type } = req.query;
-
-    let query = `
-      SELECT * FROM camera_logs
-      WHERE 1=1
-    `;
-
-    const params = [];
-    let paramIndex = 1;
-
-    if (type) {
-      query += ` AND status = $${paramIndex++}`;
-      params.push(type);
-    }
-
-    query += ` ORDER BY timestamp DESC LIMIT $${paramIndex}`;
-    params.push(parseInt(limit));
-
-    const result = await pool.query(query, params);
-
-    res.json({
-      success: true,
-      data: result.rows
-    });
-
-  } catch (error) {
-    console.error('Get logs error:', error);
-    res.status(500).json({ success: false, error: 'Лог авахад алдаа гарлаа' });
+    res.status(500).json({ success: false, error: 'Алдаа гарлаа' });
   }
 });
 
@@ -730,10 +581,7 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
-// ==========================================
-// ERROR HANDLER
-// ==========================================
-
+// Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -755,6 +603,15 @@ process.on('SIGTERM', async () => {
 app.listen(PORT, () => {
   console.log(`👨‍💼 Admin Service running on port ${PORT}`);
   console.log(`🔐 JWT configured: ${!!JWT_SECRET}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('');
+  console.log('📋 Available endpoints:');
+  console.log('   POST /admin/register  - Create admin (dev only)');
+  console.log('   POST /admin/login     - Admin login');
+  console.log('   GET  /admin/dashboard/stats - Dashboard statistics');
+  console.log('   GET  /admin/accidents - List accidents');
+  console.log('   GET  /admin/users     - List users');
+  console.log('');
 });
 
 module.exports = app;

@@ -1,13 +1,19 @@
--- Database: accident_db - FIXED VERSION
--- Таны диплом дээрх класс диаграммаас
+-- Database: accident_db - IMPROVED VERSION with Admin User
+-- =====================================================
+-- EXTENSIONS
+-- =====================================================
 
--- Enable PostGIS extension
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS cube;
 CREATE EXTENSION IF NOT EXISTS earthdistance;
+CREATE EXTENSION IF NOT EXISTS pgcrypto; -- For password hashing
+
+-- =====================================================
+-- TABLES
+-- =====================================================
 
 -- Users хүснэгт
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     phone VARCHAR(20) UNIQUE,
     email VARCHAR(100) UNIQUE,
@@ -19,22 +25,26 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_phone ON users(phone);
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_status ON users(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_status ON users(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- Admins хүснэгт
-CREATE TABLE admins (
+CREATE TABLE IF NOT EXISTS admins (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
     username VARCHAR(50) UNIQUE NOT NULL,
-    permissions JSONB DEFAULT '[]',
+    permissions JSONB DEFAULT '["all"]',
     last_login TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Cameras хүснэгт (Авто замын камер)
-CREATE TABLE cameras (
+CREATE INDEX IF NOT EXISTS idx_admins_username ON admins(username);
+CREATE INDEX IF NOT EXISTS idx_admins_user_id ON admins(user_id);
+
+-- Cameras хүснэгт
+CREATE TABLE IF NOT EXISTS cameras (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     location VARCHAR(255) NOT NULL,
@@ -45,16 +55,20 @@ CREATE TABLE cameras (
     status VARCHAR(20) DEFAULT 'active',
     is_online BOOLEAN DEFAULT false,
     last_active TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
+    resolution VARCHAR(10) DEFAULT '480p',
+    fps INTEGER DEFAULT 25,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_cameras_location ON cameras USING GIST (
+CREATE INDEX IF NOT EXISTS idx_cameras_location ON cameras USING GIST (
     ll_to_earth(latitude, longitude)
 );
-CREATE INDEX idx_cameras_status ON cameras(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status) WHERE status = 'active';
 
 -- Camera logs хүснэгт
-CREATE TABLE camera_logs (
+CREATE TABLE IF NOT EXISTS camera_logs (
     id SERIAL PRIMARY KEY,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
     timestamp TIMESTAMP DEFAULT NOW(),
@@ -62,18 +76,18 @@ CREATE TABLE camera_logs (
     error_message TEXT
 );
 
-CREATE INDEX idx_camera_logs_camera ON camera_logs(camera_id);
-CREATE INDEX idx_camera_logs_timestamp ON camera_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_camera_logs_camera ON camera_logs(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_logs_timestamp ON camera_logs(timestamp DESC);
 
 -- Videos хүснэгт
-CREATE TABLE videos (
+CREATE TABLE IF NOT EXISTS videos (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
     file_name VARCHAR(255) NOT NULL,
     file_path TEXT NOT NULL,
     file_size BIGINT,
-    duration INTEGER, -- секундээр
+    duration INTEGER,
     mime_type VARCHAR(50),
     status VARCHAR(20) DEFAULT 'uploading',
     error_message TEXT,
@@ -82,13 +96,12 @@ CREATE TABLE videos (
     processing_completed_at TIMESTAMP
 );
 
-CREATE INDEX idx_videos_user ON videos(user_id);
-CREATE INDEX idx_videos_camera ON videos(camera_id);
-CREATE INDEX idx_videos_status ON videos(status);
-CREATE INDEX idx_videos_processing ON videos(status) WHERE status IN ('uploading', 'processing');
+CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_id);
+CREATE INDEX IF NOT EXISTS idx_videos_camera ON videos(camera_id);
+CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 
 -- Locations хүснэгт
-CREATE TABLE locations (
+CREATE TABLE IF NOT EXISTS locations (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     latitude DECIMAL(10, 8) NOT NULL,
@@ -96,27 +109,21 @@ CREATE TABLE locations (
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_locations_coords ON locations USING GIST (
+CREATE INDEX IF NOT EXISTS idx_locations_coords ON locations USING GIST (
     ll_to_earth(latitude, longitude)
 );
-CREATE INDEX idx_locations_user_time ON locations(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_locations_user_time ON locations(user_id, timestamp DESC);
 
 -- Accident types хүснэгт
-CREATE TABLE accident_types (
+CREATE TABLE IF NOT EXISTS accident_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
     description TEXT,
     severity VARCHAR(20) DEFAULT 'minor'
 );
 
-INSERT INTO accident_types (name, description, severity) VALUES
-('Мөргөлдөөн', 'Хоёр ба түүнээс дээш тээврийн хэрэгслийн мөргөлдөөн', 'moderate'),
-('Эвдрэл', 'Нэг тээврийн хэрэгслийн эвдрэл', 'minor'),
-('Хүнд осол', 'Хүн амь хохирсон, гэмтсэн', 'severe'),
-('Зам хаагдсан', 'Эвдрэл, осол зам хаасан', 'moderate');
-
--- ✅ FIXED: accident_time column ашиглаж байна
-CREATE TABLE accidents (
+-- Accidents хүснэгт
+CREATE TABLE IF NOT EXISTS accidents (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
@@ -126,52 +133,44 @@ CREATE TABLE accidents (
     longitude DECIMAL(11, 8) NOT NULL,
     description TEXT,
     image_url TEXT,
-    severity VARCHAR(20) DEFAULT 'minor', -- minor, moderate, severe
-    status VARCHAR(20) DEFAULT 'reported', -- reported, confirmed, resolved, false_alarm
-    source VARCHAR(20) DEFAULT 'user', -- user, camera
+    severity VARCHAR(20) DEFAULT 'minor',
+    status VARCHAR(20) DEFAULT 'reported',
+    source VARCHAR(20) DEFAULT 'user',
     verification_count INTEGER DEFAULT 0,
-    accident_time TIMESTAMP DEFAULT NOW(),  -- ✅ FIXED: renamed from timestamp
+    accident_time TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_accidents_location ON accidents USING GIST (
+CREATE INDEX IF NOT EXISTS idx_accidents_location ON accidents USING GIST (
     ll_to_earth(latitude, longitude)
 );
-CREATE INDEX idx_accidents_status ON accidents(status);
--- ✅ FIXED: Column name corrected
-CREATE INDEX idx_accidents_time ON accidents(accident_time DESC);
-CREATE INDEX idx_accidents_active ON accidents(accident_time DESC) WHERE status NOT IN ('resolved', 'false_alarm');
-CREATE INDEX idx_accidents_source ON accidents(source);
+CREATE INDEX IF NOT EXISTS idx_accidents_status ON accidents(status);
+CREATE INDEX IF NOT EXISTS idx_accidents_time ON accidents(accident_time DESC);
+CREATE INDEX IF NOT EXISTS idx_accidents_active ON accidents(accident_time DESC) 
+    WHERE status NOT IN ('resolved', 'false_alarm');
 
 -- AI Detections хүснэгт
-CREATE TABLE ai_detections (
+CREATE TABLE IF NOT EXISTS ai_detections (
     id SERIAL PRIMARY KEY,
     video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE,
-    confidence DECIMAL(5, 4), -- 0.0000 - 1.0000
+    confidence DECIMAL(5, 4),
     detected_objects JSONB,
     status VARCHAR(20) DEFAULT 'processing',
     processed_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_ai_detections_video ON ai_detections(video_id);
-CREATE INDEX idx_ai_detections_confidence ON ai_detections(confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_detections_video ON ai_detections(video_id);
+CREATE INDEX IF NOT EXISTS idx_ai_detections_confidence ON ai_detections(confidence DESC);
 
 -- Report reasons хүснэгт
-CREATE TABLE report_reasons (
+CREATE TABLE IF NOT EXISTS report_reasons (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT
 );
 
-INSERT INTO report_reasons (name, description) VALUES
-('Шийдэгдсэн', 'Осол аль хэдийн шийдэгдсэн байна'),
-('Байршил буруу', 'Байршил буруу тэмдэглэгдсэн'),
-('Осол биш', 'Энэ осол биш юм'),
-('Хуурамч мэдээлэл', 'Зориудаар буруу мэдээлэл өгсөн'),
-('Давхардсан', 'Өмнө нь мэдээлсэн осол');
-
 -- False reports хүснэгт
-CREATE TABLE false_reports (
+CREATE TABLE IF NOT EXISTS false_reports (
     id SERIAL PRIMARY KEY,
     accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -180,38 +179,37 @@ CREATE TABLE false_reports (
     reported_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_false_reports_accident ON false_reports(accident_id);
-CREATE INDEX idx_false_reports_user ON false_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_false_reports_accident ON false_reports(accident_id);
+CREATE INDEX IF NOT EXISTS idx_false_reports_user ON false_reports(user_id);
 
 -- Notifications хүснэгт
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE,
-    type VARCHAR(50) NOT NULL, -- new_accident, status_update, nearby_accident
+    type VARCHAR(50) NOT NULL,
     title VARCHAR(200) NOT NULL,
     message TEXT,
     is_read BOOLEAN DEFAULT false,
     sent_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_notifications_user ON notifications(user_id);
-CREATE INDEX idx_notifications_read ON notifications(is_read);
-CREATE INDEX idx_notifications_sent ON notifications(sent_at DESC);
-CREATE INDEX idx_notifications_unread ON notifications(user_id, is_read) WHERE is_read = false;
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_sent ON notifications(sent_at DESC);
 
 -- Notification settings хүснэгт
-CREATE TABLE notification_settings (
+CREATE TABLE IF NOT EXISTS notification_settings (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
     push_enabled BOOLEAN DEFAULT true,
-    radius INTEGER DEFAULT 5000, -- метрээр, 5км
+    radius INTEGER DEFAULT 5000,
     accident_types JSONB DEFAULT '[]',
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Map markers хүснэгт
-CREATE TABLE map_markers (
+CREATE TABLE IF NOT EXISTS map_markers (
     id SERIAL PRIMARY KEY,
     accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE UNIQUE,
     latitude DECIMAL(10, 8) NOT NULL,
@@ -221,21 +219,20 @@ CREATE TABLE map_markers (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_map_markers_coords ON map_markers USING GIST (
+CREATE INDEX IF NOT EXISTS idx_map_markers_coords ON map_markers USING GIST (
     ll_to_earth(latitude, longitude)
 );
 
 -- =====================================================
--- ФУНКЦҮҮД
+-- FUNCTIONS
 -- =====================================================
 
--- 1. Хоёр цэгийн хоорондох зай тооцоолох (метрээр)
 CREATE OR REPLACE FUNCTION calculate_distance(
     lat1 DECIMAL, lon1 DECIMAL,
     lat2 DECIMAL, lon2 DECIMAL
 ) RETURNS DECIMAL AS $$
 DECLARE
-    R CONSTANT DECIMAL := 6371000; -- Дэлхийн радиус метрээр
+    R CONSTANT DECIMAL := 6371000;
     rad_lat1 DECIMAL;
     rad_lat2 DECIMAL;
     delta_lat DECIMAL;
@@ -257,7 +254,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- 2. Ойролцоох ослуудыг олох функц - ✅ FIXED
 CREATE OR REPLACE FUNCTION get_nearby_accidents(
     user_lat DECIMAL,
     user_lon DECIMAL,
@@ -269,7 +265,7 @@ CREATE OR REPLACE FUNCTION get_nearby_accidents(
     severity VARCHAR,
     status VARCHAR,
     description TEXT,
-    accident_time TIMESTAMP,  -- ✅ FIXED
+    accident_time TIMESTAMP,
     distance_meters DECIMAL
 ) AS $$
 BEGIN
@@ -281,7 +277,7 @@ BEGIN
         a.severity,
         a.status,
         a.description,
-        a.accident_time,  -- ✅ FIXED
+        a.accident_time,
         calculate_distance(user_lat, user_lon, a.latitude, a.longitude) as distance_meters
     FROM accidents a
     WHERE a.status != 'resolved'
@@ -295,7 +291,6 @@ $$ LANGUAGE plpgsql;
 -- TRIGGERS
 -- =====================================================
 
--- 1. Accident үүсэх үед Map marker автоматаар үүсгэх
 CREATE OR REPLACE FUNCTION create_map_marker()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -310,17 +305,18 @@ BEGIN
             ELSE 'yellow'
         END,
         'warning'
-    );
+    )
+    ON CONFLICT (accident_id) DO NOTHING;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_create_map_marker ON accidents;
 CREATE TRIGGER trigger_create_map_marker
 AFTER INSERT ON accidents
 FOR EACH ROW
 EXECUTE FUNCTION create_map_marker();
 
--- 2. Accident статус өөрчлөгдөхөд updated_at шинэчлэх
 CREATE OR REPLACE FUNCTION update_accident_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -329,12 +325,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_accident ON accidents;
 CREATE TRIGGER trigger_update_accident
 BEFORE UPDATE ON accidents
 FOR EACH ROW
 EXECUTE FUNCTION update_accident_timestamp();
 
--- 3. User updated_at trigger
 CREATE OR REPLACE FUNCTION update_user_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -343,6 +339,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_user ON users;
 CREATE TRIGGER trigger_update_user
 BEFORE UPDATE ON users
 FOR EACH ROW
@@ -352,7 +349,6 @@ EXECUTE FUNCTION update_user_timestamp();
 -- VIEWS
 -- =====================================================
 
--- 1. Идэвхтэй ослуудын харагдац - ✅ FIXED
 CREATE OR REPLACE VIEW active_accidents AS
 SELECT 
     a.id,
@@ -362,7 +358,7 @@ SELECT
     a.severity,
     a.status,
     a.source,
-    a.accident_time,  -- ✅ FIXED
+    a.accident_time,
     u.name as reported_by,
     c.name as camera_name,
     COUNT(DISTINCT fr.id) as false_report_count,
@@ -376,7 +372,6 @@ LEFT JOIN ai_detections aid ON v.id = aid.video_id
 WHERE a.status IN ('reported', 'confirmed')
 GROUP BY a.id, u.name, c.name;
 
--- 2. Камерын статистик харагдац - ✅ FIXED
 CREATE OR REPLACE VIEW camera_statistics AS
 SELECT 
     c.id,
@@ -385,14 +380,13 @@ SELECT
     c.is_online,
     COUNT(DISTINCT a.id) as total_accidents,
     COUNT(DISTINCT CASE WHEN a.accident_time > NOW() - INTERVAL '24 hours' THEN a.id END) as accidents_24h,
-    MAX(a.accident_time) as last_accident_time,  -- ✅ FIXED
+    MAX(a.accident_time) as last_accident_time,
     MAX(cl.timestamp) as last_log_time
 FROM cameras c
 LEFT JOIN accidents a ON c.id = a.camera_id
 LEFT JOIN camera_logs cl ON c.id = cl.camera_id
 GROUP BY c.id, c.name, c.status, c.is_online;
 
--- 3. Хэрэглэгчийн статистик - ✅ FIXED
 CREATE OR REPLACE VIEW user_statistics AS
 SELECT 
     u.id,
@@ -401,97 +395,147 @@ SELECT
     COUNT(DISTINCT a.id) as total_reports,
     COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END) as confirmed_reports,
     COUNT(DISTINCT fr.id) as false_reports_made,
-    MAX(a.accident_time) as last_report_time  -- ✅ FIXED
+    MAX(a.accident_time) as last_report_time
 FROM users u
 LEFT JOIN accidents a ON u.id = a.user_id
 LEFT JOIN false_reports fr ON u.id = fr.user_id
 GROUP BY u.id, u.name, u.phone;
 
 -- =====================================================
--- SAMPLE DATA
+-- INITIAL DATA
 -- =====================================================
 
--- Sample users
-INSERT INTO users (phone, email, name, password_hash, role) VALUES
-('+97699000001', 'user1@example.com', 'Батбаяр', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7zjIvFkNuK', 'user'),
-('+97699000002', 'user2@example.com', 'Цэцэгмаа', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7zjIvFkNuK', 'user'),
-('+97699000003', 'admin@example.com', 'Админ', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7zjIvFkNuK', 'admin');
+-- Accident types
+INSERT INTO accident_types (name, description, severity) VALUES
+('Мөргөлдөөн', 'Хоёр ба түүнээс дээш тээврийн хэрэгслийн мөргөлдөөн', 'moderate'),
+('Эвдрэл', 'Нэг тээврийн хэрэгслийн эвдрэл', 'minor'),
+('Хүнд осол', 'Хүн амь хохирсон, гэмтсэн', 'severe'),
+('Зам хаагдсан', 'Эвдрэл, осол зам хаасан', 'moderate')
+ON CONFLICT DO NOTHING;
+
+-- Report reasons
+INSERT INTO report_reasons (name, description) VALUES
+('Шийдэгдсэн', 'Осол аль хэдийн шийдэгдсэн байна'),
+('Байршил буруу', 'Байршил буруу тэмдэглэгдсэн'),
+('Осол биш', 'Энэ осол биш юм'),
+('Хуурамч мэдээлэл', 'Зориудаар буруу мэдээлэл өгсөн'),
+('Давхардсан', 'Өмнө нь мэдээлсэн осол')
+ON CONFLICT DO NOTHING;
+
+-- =====================================================
+-- DEFAULT ADMIN USER
+-- =====================================================
+
+DO $$
+DECLARE
+    admin_user_id INTEGER;
+    hashed_password TEXT;
+BEGIN
+    -- Generate bcrypt hash for 'admin123' (12 rounds)
+    -- In production, use a STRONG password!
+    hashed_password := crypt('admin123', gen_salt('bf', 12));
+    
+    -- Create admin user
+    INSERT INTO users (
+        phone, 
+        email, 
+        name, 
+        password_hash, 
+        role, 
+        status
+    )
+    VALUES (
+        '+97699999999',
+        'admin@accident.mn',
+        'System Admin',
+        hashed_password,
+        'admin',
+        'active'
+    )
+    ON CONFLICT (phone) DO UPDATE 
+    SET password_hash = EXCLUDED.password_hash
+    RETURNING id INTO admin_user_id;
+    
+    -- Create admin entry
+    INSERT INTO admins (
+        user_id,
+        username,
+        permissions
+    )
+    VALUES (
+        admin_user_id,
+        'admin',
+        '["all"]'::jsonb
+    )
+    ON CONFLICT (username) DO UPDATE
+    SET user_id = EXCLUDED.user_id;
+    
+    RAISE NOTICE '✅ Admin user created successfully!';
+    RAISE NOTICE '   Username: admin';
+    RAISE NOTICE '   Password: admin123';
+    RAISE NOTICE '   Phone: +97699999999';
+    RAISE NOTICE '   Email: admin@accident.mn';
+    RAISE NOTICE '';
+    RAISE NOTICE '⚠️  IMPORTANT: Change the admin password immediately in production!';
+    
+END $$;
+
+-- =====================================================
+-- SAMPLE DATA (Development only)
+-- =====================================================
+
+-- Sample users (only in development)
+DO $$
+BEGIN
+    IF current_setting('server_version_num')::integer >= 140000 THEN
+        INSERT INTO users (phone, email, name, password_hash, role) VALUES
+        ('+97699000001', 'user1@example.com', 'Батбаяр', crypt('password123', gen_salt('bf', 12)), 'user'),
+        ('+97699000002', 'user2@example.com', 'Цэцэгмаа', crypt('password123', gen_salt('bf', 12)), 'user')
+        ON CONFLICT DO NOTHING;
+    END IF;
+END $$;
 
 -- Sample cameras
-INSERT INTO cameras (name, location, latitude, longitude, ip_address, stream_url, is_online) VALUES
-('Энхтайваны өргөн чөлөө - Камер 1', 'Энхтайваны өргөн чөлөө, Чингэлтэй', 47.9184, 106.9177, '192.168.1.101', 'rtsp://camera1.example.com/stream', true),
-('Барилгачдын талбай - Камер 2', 'Барилгачдын талбай', 47.9200, 106.9190, '192.168.1.102', 'rtsp://camera2.example.com/stream', true),
-('Сөүлийн гудамж - Камер 3', 'Сөүлийн гудамж, Хан-Уул', 47.9150, 106.9160, '192.168.1.103', 'rtsp://camera3.example.com/stream', false);
+INSERT INTO cameras (name, location, latitude, longitude, stream_url, is_online, resolution, fps, description) VALUES
+('Энхтайваны өргөн чөлөө - Камер 1', 'Энхтайваны өргөн чөлөө, Чингэлтэй', 47.9184, 106.9177, 'rtsp://camera1.example.com/stream', false, '720p', 25, 'Test камер - Development'),
+('UB Traffic - Камер 32770', 'Улаанбаатар хот', 47.9184, 106.9057, 'https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8', true, '480p', 25, 'UB Traffic system камер')
+ON CONFLICT DO NOTHING;
 
--- Comments
-COMMENT ON TABLE accidents IS 'Авто замын ослын үндсэн хүснэгт';
+-- =====================================================
+-- COMMENTS
+-- =====================================================
+
+COMMENT ON TABLE users IS 'Хэрэглэгчийн үндсэн мэдээлэл';
+COMMENT ON TABLE admins IS 'Админ хэрэглэгчид';
+COMMENT ON TABLE accidents IS 'Авто замын ослын мэдээлэл';
 COMMENT ON TABLE cameras IS 'Авто замын камерууд';
 COMMENT ON TABLE ai_detections IS 'AI-ээр илрүүлсэн үр дүн';
 COMMENT ON TABLE false_reports IS 'Буруу мэдээллийн засварлалт';
-COMMENT ON COLUMN accidents.accident_time IS 'Ослын болсон цаг (өмнө нь timestamp байсан)';
+COMMENT ON COLUMN accidents.accident_time IS 'Ослын болсон цаг';
 
--- PostgreSQL-д камер нэмэх
-INSERT INTO cameras (
-  name,
-  location,
-  stream_url,
-  status,
-  resolution,
-  fps,
-  description,
-  location_coordinates
-) VALUES (
-  'UB Traffic - Камер 32770',
-  'Улаанбаатар',
-  'https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8',
-  'active',
-  '480p',
-  25,
-  'Улаанбаатарын авто замын камер',
-  ST_SetSRID(ST_MakePoint(106.9057, 47.9184), 4326)  -- UB coordinates
-);
+-- =====================================================
+-- COMPLETION MESSAGE
+-- =====================================================
 
--- ID авах (дараачийн алхамд хэрэг болно)
-SELECT id, name FROM cameras WHERE name LIKE '%32770%';
-
--- Cameras хүснэгт (FIXED - updated_at, resolution нэмсэн)
-CREATE TABLE IF NOT EXISTS cameras (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    location VARCHAR(255) NOT NULL,
-    latitude DECIMAL(10, 8) NOT NULL,
-    longitude DECIMAL(11, 8) NOT NULL,
-    ip_address VARCHAR(45),
-    stream_url TEXT,
-    status VARCHAR(20) DEFAULT 'active',
-    is_online BOOLEAN DEFAULT false,
-    last_active TIMESTAMP,
-    resolution VARCHAR(10) DEFAULT '480p',  -- ADDED
-    fps INTEGER DEFAULT 25,                 -- ADDED
-    description TEXT,                        -- ADDED
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()      -- ADDED
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_cameras_location ON cameras USING GIST (
-    ll_to_earth(latitude, longitude)
-);
-CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status) WHERE status = 'active';
-
--- UB Traffic камер нэмэх
-INSERT INTO cameras (
-  name, location, stream_url, status, resolution, fps, 
-  description, latitude, longitude, is_online
-) VALUES (
-  'UB Traffic - Камер 32770',
-  'Улаанбаатар',
-  'https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8',
-  'active',
-  '480p',
-  25,
-  'Улаанбаатарын авто замын камер',
-  47.9184,
-  106.9057,
-  true
-) ON CONFLICT DO NOTHING;
+DO $$
+BEGIN
+    RAISE NOTICE '';
+    RAISE NOTICE '═══════════════════════════════════════════════════════════';
+    RAISE NOTICE '✅ Database initialization completed successfully!';
+    RAISE NOTICE '═══════════════════════════════════════════════════════════';
+    RAISE NOTICE '';
+    RAISE NOTICE '📊 Created tables: users, admins, cameras, accidents, videos, etc.';
+    RAISE NOTICE '🔧 Created functions: calculate_distance, get_nearby_accidents';
+    RAISE NOTICE '⚡ Created triggers: auto map markers, timestamps';
+    RAISE NOTICE '👁️  Created views: active_accidents, camera_statistics, user_statistics';
+    RAISE NOTICE '';
+    RAISE NOTICE '👤 Default Admin Login:';
+    RAISE NOTICE '   URL: http://localhost:3009/admin/login';
+    RAISE NOTICE '   Username: admin';
+    RAISE NOTICE '   Password: admin123';
+    RAISE NOTICE '';
+    RAISE NOTICE '⚠️  SECURITY WARNING:';
+    RAISE NOTICE '   Change admin password immediately in production!';
+    RAISE NOTICE '';
+    RAISE NOTICE '═══════════════════════════════════════════════════════════';
+END $$;
