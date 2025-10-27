@@ -6,17 +6,23 @@ const { Pool } = require('pg');
 const Redis = require('ioredis');
 const helmet = require('helmet');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3009;
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow inline scripts for admin dashboard
+}));
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
   credentials: true
 }));
 app.use(express.json());
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
 
 // PostgreSQL
 const pool = new Pool({
@@ -416,12 +422,16 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
       SELECT 
         a.*,
         u.name as reported_by_name,
+        u.phone as reported_by_phone,
         c.name as camera_name,
-        COUNT(DISTINCT fr.id) as false_report_count
+        COUNT(DISTINCT fr.id) as false_report_count,
+        AVG(aid.confidence)::float as avg_confidence
       FROM accidents a
       LEFT JOIN users u ON a.user_id = u.id
       LEFT JOIN cameras c ON a.camera_id = c.id
       LEFT JOIN false_reports fr ON a.id = fr.accident_id
+      LEFT JOIN videos v ON a.video_id = v.id
+      LEFT JOIN ai_detections aid ON v.id = aid.video_id
       WHERE 1=1
     `;
 
@@ -444,7 +454,7 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
     }
 
     query += `
-      GROUP BY a.id, u.name, c.name
+      GROUP BY a.id, u.name, u.phone, c.name
       ORDER BY a.accident_time DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `;
@@ -524,9 +534,13 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
       pool.query(`
         SELECT 
           u.id, u.phone, u.email, u.name, u.status, u.role, u.created_at,
-          us.total_reports, us.confirmed_reports
+          COUNT(DISTINCT CASE WHEN a.status != 'false_alarm' THEN a.id END)::int as total_reports,
+          COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END)::int as confirmed_reports,
+          COUNT(DISTINCT fr.id)::int as false_reports_made
         FROM users u
-        LEFT JOIN user_statistics us ON u.id = us.id
+        LEFT JOIN accidents a ON u.id = a.user_id
+        LEFT JOIN false_reports fr ON u.id = fr.reported_by_id
+        GROUP BY u.id
         ORDER BY u.created_at DESC
         LIMIT $1 OFFSET $2
       `, [limit, offset]),
@@ -539,7 +553,8 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: parseInt(totalCount.rows[0].count)
+        total: parseInt(totalCount.rows[0].count),
+        totalPages: Math.ceil(parseInt(totalCount.rows[0].count) / parseInt(limit))
       }
     });
 
@@ -581,6 +596,15 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
+// ==========================================
+// FALLBACK ROUTE FOR SPA
+// ==========================================
+
+// Serve index.html for all other routes (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -604,8 +628,12 @@ app.listen(PORT, () => {
   console.log(`👨‍💼 Admin Service running on port ${PORT}`);
   console.log(`🔐 JWT configured: ${!!JWT_SECRET}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📁 Static files: ${path.join(__dirname, 'public')}`);
   console.log('');
   console.log('📋 Available endpoints:');
+  console.log('   GET  /                - Admin dashboard (redirects to login)');
+  console.log('   GET  /login.html      - Login page');
+  console.log('   GET  /dashboard.html  - Dashboard');
   console.log('   POST /admin/register  - Create admin (dev only)');
   console.log('   POST /admin/login     - Admin login');
   console.log('   GET  /admin/dashboard/stats - Dashboard statistics');
