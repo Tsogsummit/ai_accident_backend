@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Камерууд - Admin Panel</title>
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="admin-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2><i class="fas fa-car-crash"></i> Admin Panel</h2>
+        <p>AI Accident Detection</p>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-item">
+          <a href="/dashboard.html" class="nav-link" data-page="dashboard">
+            <i class="fas fa-th-large"></i>
+            <span>Дашбоард</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/accidents.html" class="nav-link" data-page="accidents">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>Ослууд</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/users.html" class="nav-link" data-page="users">
+            <i class="fas fa-users"></i>
+            <span>Хэрэглэгчид</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/cameras.html" class="nav-link" data-page="cameras">
+            <i class="fas fa-video"></i>
+            <span>Камерууд</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/reports.html" class="nav-link" data-page="reports">
+            <i class="fas fa-chart-bar"></i>
+            <span>Тайлангууд</span>
+          </a>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1>Камерууд</h1>
+        </div>
+        <div class="topbar-right">
+          <div class="user-info">
+            <div class="user-avatar">A</div>
+            <div class="user-details">
+              <div class="user-name">Admin</div>
+              <div class="user-role">Админ</div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-danger" id="logout-btn">
+            <i class="fas fa-sign-out-alt"></i> Гарах
+          </button>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <div class="content">
+        <div class="card">
+          <div class="card-body" style="text-align: center; padding: 4rem 2rem;">
+            <i class="fas fa-video" style="font-size: 4rem; color: var(--primary); margin-bottom: 1rem;"></i>
+            <h2 style="margin-bottom: 1rem;">Камерын удирдлага</h2>
+            <p style="color: var(--secondary); max-width: 500px; margin: 0 auto;">
+              Камерын модуль хөгжүүлэлт хийгдэж байна. Удахгүй /api/cameras endpoint-ээс камерын мэдээллийг харуулна.
+            </p>
+            <div style="margin-top: 2rem;">
+              <a href="/dashboard.html" class="btn btn-primary">
+                <i class="fas fa-arrow-left"></i> Дашбоард руу буцах
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/js/api.js"></script>
+  <script src="/js/utils.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    // Check authentication
+    if (!requireAuth()) {
+      // Will redirect to login
+    } else {
+      initUserInfo();
+      initLogoutButton();
+      
+      // Set active nav
+      document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+      });
+      document.querySelector('[data-page="cameras"]').classList.add('active');
+    }
+  </script>
+</body>
+</html>

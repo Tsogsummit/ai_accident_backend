@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Дашбоард - Admin Panel</title>
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="admin-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2><i class="fas fa-car-crash"></i> Admin Panel</h2>
+        <p>AI Accident Detection</p>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-item">
+          <a href="/dashboard.html" class="nav-link" data-page="dashboard">
+            <i class="fas fa-th-large"></i>
+            <span>Дашбоард</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/accidents.html" class="nav-link" data-page="accidents">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>Ослууд</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/users.html" class="nav-link" data-page="users">
+            <i class="fas fa-users"></i>
+            <span>Хэрэглэгчид</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/cameras.html" class="nav-link" data-page="cameras">
+            <i class="fas fa-video"></i>
+            <span>Камерууд</span>
+          </a>
+        </div>
+        <div class="nav-item">
+          <a href="/reports.html" class="nav-link" data-page="reports">
+            <i class="fas fa-chart-bar"></i>
+            <span>Тайлангууд</span>
+          </a>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1>Дашбоард</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-sm btn-secondary" id="refresh-btn" onclick="handleRefresh()" title="Шинэчлэх">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+          <div class="user-info">
+            <div class="user-avatar">A</div>
+            <div class="user-details">
+              <div class="user-name">Admin</div>
+              <div class="user-role">Админ</div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-danger" id="logout-btn">
+            <i class="fas fa-sign-out-alt"></i> Гарах
+          </button>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <div class="content">
+        <!-- Welcome Card -->
+        <div class="dashboard-welcome">
+          <h2>Тавтай морил!</h2>
+          <p>AI Accident Detection System - Админ удирдлагын самбар</p>
+          <p style="margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.9;" id="last-refresh">
+            Сүүлд шинэчилсэн: --:--
+          </p>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+          <!-- Total Accidents -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Нийт ослууд</div>
+              <div class="stat-value" id="total-accidents">0</div>
+            </div>
+            <div class="stat-icon primary">
+              <i class="fas fa-exclamation-triangle"></i>
+            </div>
+          </div>
+
+          <!-- Active Accidents -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Идэвхтэй ослууд</div>
+              <div class="stat-value" id="active-accidents">0</div>
+            </div>
+            <div class="stat-icon danger">
+              <i class="fas fa-fire"></i>
+            </div>
+          </div>
+
+          <!-- Today's Accidents -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Өнөөдрийн ослууд</div>
+              <div class="stat-value" id="today-accidents">0</div>
+            </div>
+            <div class="stat-icon warning">
+              <i class="fas fa-calendar-day"></i>
+            </div>
+          </div>
+
+          <!-- Total Users -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Нийт хэрэглэгчид</div>
+              <div class="stat-value" id="total-users">0</div>
+            </div>
+            <div class="stat-icon primary">
+              <i class="fas fa-users"></i>
+            </div>
+          </div>
+
+          <!-- Active Users -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Идэвхтэй хэрэглэгчид</div>
+              <div class="stat-value" id="active-users">0</div>
+            </div>
+            <div class="stat-icon success">
+              <i class="fas fa-user-check"></i>
+            </div>
+          </div>
+
+          <!-- Total Cameras -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Нийт камерууд</div>
+              <div class="stat-value" id="total-cameras">0</div>
+            </div>
+            <div class="stat-icon primary">
+              <i class="fas fa-video"></i>
+            </div>
+          </div>
+
+          <!-- Online Cameras -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Online камерууд</div>
+              <div class="stat-value" id="online-cameras">0</div>
+            </div>
+            <div class="stat-icon success">
+              <i class="fas fa-broadcast-tower"></i>
+            </div>
+          </div>
+
+          <!-- Total Videos -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Нийт бичлэгүүд</div>
+              <div class="stat-value" id="total-videos">0</div>
+            </div>
+            <div class="stat-icon primary">
+              <i class="fas fa-film"></i>
+            </div>
+          </div>
+
+          <!-- Pending Videos -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">Боловсруулж байгаа</div>
+              <div class="stat-value" id="pending-videos">0</div>
+            </div>
+            <div class="stat-icon warning">
+              <i class="fas fa-spinner"></i>
+            </div>
+          </div>
+
+          <!-- AI Accuracy -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">AI нарийвчлал</div>
+              <div class="stat-value" id="ai-accuracy">0%</div>
+            </div>
+            <div class="stat-icon success">
+              <i class="fas fa-brain"></i>
+            </div>
+          </div>
+
+          <!-- AI Confidence -->
+          <div class="stat-card">
+            <div class="stat-info">
+              <div class="stat-label">AI итгэлцүүр</div>
+              <div class="stat-value" id="ai-confidence">0</div>
+            </div>
+            <div class="stat-icon primary">
+              <i class="fas fa-robot"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Хурдан үйлдлүүд</h3>
+          </div>
+          <div class="card-body">
+            <div class="quick-actions">
+              <a href="/accidents.html" class="quick-action">
+                <div class="quick-action-icon">
+                  <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="quick-action-title">Ослууд харах</div>
+              </a>
+              <a href="/users.html" class="quick-action">
+                <div class="quick-action-icon">
+                  <i class="fas fa-users"></i>
+                </div>
+                <div class="quick-action-title">Хэрэглэгчид</div>
+              </a>
+              <a href="/cameras.html" class="quick-action">
+                <div class="quick-action-icon">
+                  <i class="fas fa-video"></i>
+                </div>
+                <div class="quick-action-title">Камерууд</div>
+              </a>
+              <a href="/reports.html" class="quick-action">
+                <div class="quick-action-icon">
+                  <i class="fas fa-chart-bar"></i>
+                </div>
+                <div class="quick-action-title">Тайлангууд</div>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Status -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Системийн төлөв</h3>
+          </div>
+          <div class="card-body">
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <div class="status-indicator online">
+                <span class="status-dot"></span>
+                <span>API Gateway</span>
+              </div>
+              <div class="status-indicator online">
+                <span class="status-dot"></span>
+                <span>Database</span>
+              </div>
+              <div class="status-indicator online">
+                <span class="status-dot"></span>
+                <span>Redis Cache</span>
+              </div>
+              <div class="status-indicator online">
+                <span class="status-dot"></span>
+                <span>AI Service</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/js/api.js"></script>
+  <script src="/js/utils.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
