@@ -44,3 +44,306 @@
   <script>if(requireAuth()){initUserInfo();initLogoutButton();}</script>
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+  <meta charset="UTF-8">
+  <title>Камерууд - Admin Panel</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .camera-card {
+      background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between;
+      align-items: center; transition: transform 0.2s;
+    }
+    .camera-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .camera-info { flex: 1; }
+    .camera-name { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .camera-details { color: var(--secondary); font-size: 0.875rem; }
+    .camera-status { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 12px;
+      font-size: 0.75rem; font-weight: 600; margin-right: 0.5rem; }
+    .camera-status.online { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+    .camera-status.offline { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+    .camera-actions { display: flex; gap: 0.5rem; }
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); }
+    .modal.show { display: flex; align-items: center; justify-content: center; }
+    .modal-content { background: white; border-radius: 8px; padding: 2rem; max-width: 500px; width: 90%; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    .modal-title { font-size: 1.25rem; font-weight: 600; }
+    .modal-close { cursor: pointer; font-size: 1.5rem; color: var(--secondary); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="admin-container">
+    <aside class="sidebar">
+      <div class="sidebar-header"><h2><i class="fas fa-car-crash"></i> Admin Panel</h2><p>AI Accident Detection</p></div>
+      <nav class="sidebar-nav">
+        <div class="nav-item"><a href="/dashboard.html" class="nav-link"><i class="fas fa-th-large"></i><span>Дашбоард</span></a></div>
+        <div class="nav-item"><a href="/accidents.html" class="nav-link"><i class="fas fa-exclamation-triangle"></i><span>Ослууд</span></a></div>
+        <div class="nav-item"><a href="/users.html" class="nav-link"><i class="fas fa-users"></i><span>Хэрэглэгчид</span></a></div>
+        <div class="nav-item"><a href="/cameras.html" class="nav-link active"><i class="fas fa-video"></i><span>Камерууд</span></a></div>
+        <div class="nav-item"><a href="/reports.html" class="nav-link"><i class="fas fa-chart-bar"></i><span>Тайлангууд</span></a></div>
+        <div class="nav-item"><a href="/services.html" class="nav-link"><i class="fas fa-server"></i><span>Сервисүүд</span></a></div>
+      </nav>
+    </aside>
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left"><h1>Камерууд</h1></div>
+        <div class="topbar-right">
+          <button class="btn btn-sm btn-primary" onclick="openAddModal()"><i class="fas fa-plus"></i> Камер нэмэх</button>
+          <div class="user-info"><div class="user-avatar">A</div><div class="user-details"><div class="user-name">Admin</div><div class="user-role">Админ</div></div></div>
+          <button class="btn btn-sm btn-danger" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Гарах</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="card">
+          <div class="card-header"><h3 class="card-title">Камерын жагсаалт</h3></div>
+          <div class="card-body">
+            <div id="cameras-container">
+              <div class="loading"><div class="spinner"></div><p>Ачааллаж байна...</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add/Edit Modal -->
+  <div id="camera-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title">Камер нэмэх</h3>
+        <span class="modal-close" onclick="closeModal()">&times;</span>
+      </div>
+      <form id="camera-form" onsubmit="handleSubmit(event)">
+        <input type="hidden" id="camera-id">
+        <div class="form-group">
+          <label class="form-label">Камерын нэр *</label>
+          <input type="text" id="camera-name" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Байршил *</label>
+          <input type="text" id="camera-location" class="form-control" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Өргөрөг *</label>
+            <input type="number" id="camera-lat" class="form-control" step="0.000001" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Уртраг *</label>
+            <input type="number" id="camera-lng" class="form-control" step="0.000001" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Stream URL</label>
+          <input type="url" id="camera-stream-url" class="form-control" placeholder="rtsp://... эсвэл https://...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">IP хаяг</label>
+          <input type="text" id="camera-ip" class="form-control" placeholder="192.168.1.100">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Нягтрал</label>
+            <select id="camera-resolution" class="form-control form-select">
+              <option value="480p">480p</option>
+              <option value="720p" selected>720p</option>
+              <option value="1080p">1080p</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">FPS</label>
+            <input type="number" id="camera-fps" class="form-control" value="25" min="1" max="60">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Тайлбар</label>
+          <textarea id="camera-description" class="form-control" rows="3"></textarea>
+        </div>
+        <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Болих</button>
+          <button type="submit" class="btn btn-primary" id="submit-btn">Хадгалах</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/utils.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    let cameras = [];
+
+    async function loadCameras() {
+      showLoading('cameras-container');
+      try {
+        const result = await api.get('/admin/cameras');
+        if (result.success) {
+          cameras = result.data;
+          renderCameras(cameras);
+        }
+      } catch (error) {
+        document.getElementById('cameras-container').innerHTML = 
+          '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Камер ачааллахад алдаа гарлаа</div>';
+      }
+    }
+
+    function renderCameras(cameraList) {
+      const container = document.getElementById('cameras-container');
+      if (!cameraList || cameraList.length === 0) {
+        container.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> Камер олдсонгүй</div>';
+        return;
+      }
+
+      container.innerHTML = cameraList.map(camera => `
+        <div class="camera-card">
+          <div class="camera-info">
+            <div class="camera-name">
+              <i class="fas fa-video"></i> ${escapeHtml(camera.name)}
+              <span class="camera-status ${camera.is_online ? 'online' : 'offline'}">
+                ${camera.is_online ? 'Online' : 'Offline'}
+              </span>
+            </div>
+            <div class="camera-details">
+              <div><i class="fas fa-map-marker-alt"></i> ${escapeHtml(camera.location)}</div>
+              <div><i class="fas fa-crosshairs"></i> ${camera.latitude}, ${camera.longitude}</div>
+              ${camera.resolution ? `<div><i class="fas fa-film"></i> ${camera.resolution} @ ${camera.fps || 25} FPS</div>` : ''}
+              ${camera.ip_address ? `<div><i class="fas fa-network-wired"></i> ${camera.ip_address}</div>` : ''}
+            </div>
+          </div>
+          <div class="camera-actions">
+            <button class="btn btn-sm btn-primary" onclick="editCamera(${camera.id})" title="Засах">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-sm btn-${camera.is_online ? 'warning' : 'success'}" 
+                    onclick="toggleCamera(${camera.id}, ${camera.is_online})" 
+                    title="${camera.is_online ? 'Идэвхгүй болгох' : 'Идэвхжүүлэх'}">
+              <i class="fas fa-power-off"></i>
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteCamera(${camera.id})" title="Устгах">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openAddModal() {
+      document.getElementById('modal-title').textContent = 'Камер нэмэх';
+      document.getElementById('camera-form').reset();
+      document.getElementById('camera-id').value = '';
+      document.getElementById('camera-modal').classList.add('show');
+    }
+
+    function editCamera(id) {
+      const camera = cameras.find(c => c.id === id);
+      if (!camera) return;
+
+      document.getElementById('modal-title').textContent = 'Камер засах';
+      document.getElementById('camera-id').value = camera.id;
+      document.getElementById('camera-name').value = camera.name;
+      document.getElementById('camera-location').value = camera.location;
+      document.getElementById('camera-lat').value = camera.latitude;
+      document.getElementById('camera-lng').value = camera.longitude;
+      document.getElementById('camera-stream-url').value = camera.stream_url || '';
+      document.getElementById('camera-ip').value = camera.ip_address || '';
+      document.getElementById('camera-resolution').value = camera.resolution || '720p';
+      document.getElementById('camera-fps').value = camera.fps || 25;
+      document.getElementById('camera-description').value = camera.description || '';
+      document.getElementById('camera-modal').classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('camera-modal').classList.remove('show');
+    }
+
+    async function handleSubmit(e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('submit-btn');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Хадгалж байна...';
+
+      try {
+        const cameraId = document.getElementById('camera-id').value;
+        const data = {
+          name: document.getElementById('camera-name').value.trim(),
+          location: document.getElementById('camera-location').value.trim(),
+          latitude: parseFloat(document.getElementById('camera-lat').value),
+          longitude: parseFloat(document.getElementById('camera-lng').value),
+          streamUrl: document.getElementById('camera-stream-url').value.trim(),
+          ipAddress: document.getElementById('camera-ip').value.trim(),
+          resolution: document.getElementById('camera-resolution').value,
+          fps: parseInt(document.getElementById('camera-fps').value),
+          description: document.getElementById('camera-description').value.trim()
+        };
+
+        let result;
+        if (cameraId) {
+          result = await api.put(`/admin/cameras/${cameraId}`, data);
+        } else {
+          result = await api.post('/admin/cameras', data);
+        }
+
+        if (result.success) {
+          showToast(cameraId ? 'Камер шинэчлэгдлээ' : 'Камер нэмэгдлээ', 'success');
+          closeModal();
+          await loadCameras();
+        }
+      } catch (error) {
+        showToast('Алдаа гарлаа: ' + error.message, 'danger');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = 'Хадгалах';
+      }
+    }
+
+    async function toggleCamera(id, isOnline) {
+      if (!confirm(`Камер ${isOnline ? 'идэвхгүй' : 'идэвхтэй'} болгох уу?`)) return;
+      try {
+        const result = await api.put(`/admin/cameras/${id}/toggle`);
+        if (result.success) {
+          showToast('Камерын статус шинэчлэгдлээ', 'success');
+          await loadCameras();
+        }
+      } catch (error) {
+        showToast('Алдаа гарлаа', 'danger');
+      }
+    }
+
+    async function deleteCamera(id) {
+      if (!confirm('Камер устгахдаа итгэлтэй байна уу? Үүнтэй холбоотой бүх өгөгдөл устана.')) return;
+      try {
+        const result = await api.delete(`/admin/cameras/${id}`);
+        if (result.success) {
+          showToast('Камер устгагдлаа', 'success');
+          await loadCameras();
+        }
+      } catch (error) {
+        showToast('Алдаа гарлаа', 'danger');
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!checkAuth()) return;
+      initUserInfo();
+      initLogoutButton();
+      setActiveNav('cameras');
+      loadCameras();
+    });
+
+    // Close modal on outside click
+    window.onclick = function(event) {
+      const modal = document.getElementById('camera-modal');
+      if (event.target === modal) {
+        closeModal();
+      }
+    };
+  </script>
+</body>
+</html>
