@@ -253,6 +253,7 @@
                             <div class="user-role">Администратор</div>
                         </div>
                     </div>
+                    <button class="btn btn-sm btn-danger" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Гарах</button>
                 </div>
             </div>
 
@@ -288,7 +289,7 @@
                     </div>
                     <div class="stat-card">
                         <div class="stat-info">
-                            <div class="stat-label">Илэрсэн (1ц)</div>
+                            <div class="stat-label">Илэрсэн (24ц)</div>
                             <div class="stat-value" id="hourlyDetections">0</div>
                         </div>
                         <div class="stat-icon warning">
@@ -312,7 +313,7 @@
                     </div>
                     <div class="card-body">
                         <div id="camerasContainer" class="camera-grid">
-                            <!-- Cameras будут загружены здесь -->
+                            <div class="loading"><div class="spinner"></div><p>Ачааллаж байна...</p></div>
                         </div>
                     </div>
                 </div>
@@ -331,86 +332,91 @@
                 <form id="cameraForm" onsubmit="handleSubmit(event)">
                     <div class="form-group">
                         <label class="form-label">Нэр *</label>
-                        <input type="text" name="name" class="form-control" required>
+                        <input type="text" name="name" id="camera-name" class="form-control" required>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Байршил *</label>
-                        <input type="text" name="location" class="form-control" required>
+                        <input type="text" name="location" id="camera-location" class="form-control" required>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Өргөрөг *</label>
-                            <input type="number" name="latitude" class="form-control" step="0.000001" required>
+                            <input type="number" name="latitude" id="camera-latitude" class="form-control" step="0.000001" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Уртраг *</label>
-                            <input type="number" name="longitude" class="form-control" step="0.000001" required>
+                            <input type="number" name="longitude" id="camera-longitude" class="form-control" step="0.000001" required>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Stream URL *</label>
-                        <input type="url" name="stream_url" class="form-control" required 
+                        <label class="form-label">Stream URL</label>
+                        <input type="url" name="stream_url" id="camera-stream" class="form-control"
                                placeholder="https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8">
                         <small style="color: var(--secondary);">HLS (.m3u8) эсвэл RTSP (rtsp://) URL</small>
                     </div>
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Нарийвчлал</label>
-                            <select name="resolution" class="form-control form-select">
-                                <option value="480p">480p</option>
-                                <option value="720p">720p</option>
-                                <option value="1080p">1080p</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">FPS</label>
-                            <input type="number" name="fps" class="form-control" value="25">
-                        </div>
+                    <div class="form-group">
+                        <label class="form-label">IP Address</label>
+                        <input type="text" name="ip_address" id="camera-ip" class="form-control" placeholder="192.168.1.100">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Төлөв</label>
+                        <select name="status" id="camera-status" class="form-control form-select">
+                            <option value="active">Идэвхтэй</option>
+                            <option value="inactive">Идэвхгүй</option>
+                            <option value="maintenance">Засвар</option>
+                        </select>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Тайлбар</label>
-                        <textarea name="description" class="form-control" rows="3"></textarea>
+                        <textarea name="description" id="camera-description" class="form-control" rows="3"></textarea>
                     </div>
 
                     <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
                         <button type="button" class="btn btn-secondary" onclick="closeModal()">Болих</button>
-                        <button type="submit" class="btn btn-primary">Хадгалах</button>
+                        <button type="submit" class="btn btn-primary" id="save-btn">Хадгалах</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
+    <script src="/js/api.js"></script>
+    <script src="/js/utils.js"></script>
+    <script src="/js/auth.js"></script>
     <script>
         let cameras = [];
         let currentCameraId = null;
 
         // Load cameras on page load
         document.addEventListener('DOMContentLoaded', () => {
+            if (!checkAuth()) return;
+            initUserInfo();
+            initLogoutButton();
             loadCameras();
             
-            // Auto-refresh every 10 seconds
-            setInterval(loadCameras, 10000);
+            // Auto-refresh every 30 seconds
+            setInterval(loadCameras, 30000);
         });
 
         // Load cameras from API
         async function loadCameras() {
             try {
-                const response = await fetch('http://localhost:3008/cameras');
-                const data = await response.json();
+                const result = await api.get('/admin/cameras');
 
-                if (data.success) {
-                    cameras = data.cameras;
+                if (result.success) {
+                    cameras = result.data;
                     renderCameras();
                     updateStats();
                 }
             } catch (error) {
                 console.error('Failed to load cameras:', error);
+                showToast('Камер ачааллахад алдаа гарлаа', 'danger');
             }
         }
 
@@ -433,48 +439,40 @@
                 <div class="camera-card">
                     <div class="camera-preview">
                         ${camera.thumbnailUrl 
-                            ? `<img src="${camera.thumbnailUrl}" alt="${camera.name}">`
+                            ? `<img src="${camera.thumbnailUrl}" alt="${escapeHtml(camera.name)}">`
                             : `<i class="fas fa-video camera-placeholder"></i>`
                         }
-                        <div class="camera-status-badge ${camera.isRecording ? 'recording' : camera.isOnline ? 'online' : 'offline'}">
-                            ${camera.isRecording 
-                                ? '<span class="recording-indicator"></span>REC'
-                                : camera.isOnline ? 'Online' : 'Offline'
-                            }
+                        <div class="camera-status-badge ${camera.is_online ? 'online' : 'offline'}">
+                            ${camera.is_online ? 'Online' : 'Offline'}
                         </div>
                     </div>
                     <div class="camera-info">
-                        <div class="camera-name">${camera.name}</div>
+                        <div class="camera-name">${escapeHtml(camera.name)}</div>
                         <div class="camera-location">
-                            <i class="fas fa-map-marker-alt"></i> ${camera.location}
+                            <i class="fas fa-map-marker-alt"></i> ${escapeHtml(camera.location)}
                         </div>
                         
                         <div class="camera-stats">
                             <div class="stat-item">
-                                <div class="stat-value">${camera.totalFrames || 0}</div>
-                                <div class="stat-label">Frames</div>
+                                <div class="stat-value">${camera.total_accidents || 0}</div>
+                                <div class="stat-label">Нийт</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value">${camera.totalDetections || 0}</div>
-                                <div class="stat-label">Илэрсэн</div>
+                                <div class="stat-value">${camera.accidents_24h || 0}</div>
+                                <div class="stat-label">24 цаг</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value">${camera.potentialAccidents || 0}</div>
-                                <div class="stat-label">Осол</div>
+                                <div class="stat-value">${camera.status === 'active' ? '✓' : '✗'}</div>
+                                <div class="stat-label">Статус</div>
                             </div>
                         </div>
 
                         <div class="camera-actions">
-                            ${!camera.isRecording 
-                                ? `<button class="btn btn-success btn-sm" onclick="startCamera(${camera.id})" style="flex: 1;">
-                                    <i class="fas fa-play"></i> Эхлүүлэх
-                                </button>`
-                                : `<button class="btn btn-warning btn-sm" onclick="stopCamera(${camera.id})" style="flex: 1;">
-                                    <i class="fas fa-stop"></i> Зогсоох
-                                </button>`
-                            }
-                            <button class="btn btn-secondary btn-sm" onclick="viewDetails(${camera.id})">
-                                <i class="fas fa-eye"></i>
+                            <button class="btn btn-primary btn-sm" onclick="viewDetails(${camera.id})" style="flex: 1;">
+                                <i class="fas fa-eye"></i> Үзэх
+                            </button>
+                            <button class="btn btn-warning btn-sm" onclick="editCamera(${camera.id})">
+                                <i class="fas fa-edit"></i>
                             </button>
                             <button class="btn btn-danger btn-sm" onclick="deleteCamera(${camera.id})">
                                 <i class="fas fa-trash"></i>
@@ -488,10 +486,10 @@
         // Update stats
         function updateStats() {
             document.getElementById('totalCameras').textContent = cameras.length;
-            document.getElementById('activeCameras').textContent = cameras.filter(c => c.isOnline).length;
-            document.getElementById('recordingCameras').textContent = cameras.filter(c => c.isRecording).length;
+            document.getElementById('activeCameras').textContent = cameras.filter(c => c.is_online).length;
+            document.getElementById('recordingCameras').textContent = cameras.filter(c => c.status === 'active').length;
             
-            const totalDetections = cameras.reduce((sum, c) => sum + (c.totalDetections || 0), 0);
+            const totalDetections = cameras.reduce((sum, c) => sum + (parseInt(c.accidents_24h) || 0), 0);
             document.getElementById('hourlyDetections').textContent = totalDetections;
         }
 
@@ -508,6 +506,25 @@
             document.getElementById('cameraModal').classList.remove('active');
         }
 
+        // Edit camera
+        function editCamera(id) {
+            const camera = cameras.find(c => c.id === id);
+            if (!camera) return;
+
+            currentCameraId = id;
+            document.getElementById('modalTitle').textContent = 'Камер засах';
+            document.getElementById('camera-name').value = camera.name;
+            document.getElementById('camera-location').value = camera.location;
+            document.getElementById('camera-latitude').value = camera.latitude;
+            document.getElementById('camera-longitude').value = camera.longitude;
+            document.getElementById('camera-stream').value = camera.stream_url || '';
+            document.getElementById('camera-ip').value = camera.ip_address || '';
+            document.getElementById('camera-status').value = camera.status || 'active';
+            document.getElementById('camera-description').value = camera.description || '';
+            
+            document.getElementById('cameraModal').classList.add('active');
+        }
+
         // Handle form submit
         async function handleSubmit(event) {
             event.preventDefault();
@@ -515,107 +532,80 @@
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData);
 
+            const saveBtn = document.getElementById('save-btn');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Хадгалж байна...';
+
             try {
-                const url = currentCameraId 
-                    ? `http://localhost:3008/cameras/${currentCameraId}`
-                    : 'http://localhost:3008/cameras';
-                
-                const method = currentCameraId ? 'PUT' : 'POST';
-
-                const response = await fetch(url, {
-                    method,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-
-                const result = await response.json();
+                let result;
+                if (currentCameraId) {
+                    result = await api.put(`/admin/cameras/${currentCameraId}`, data);
+                } else {
+                    result = await api.post('/admin/cameras', data);
+                }
 
                 if (result.success) {
-                    alert(result.message);
+                    showToast(result.message || 'Амжилттай хадгалагдлаа', 'success');
                     closeModal();
                     loadCameras();
                 } else {
-                    alert('Алдаа: ' + result.error);
+                    throw new Error(result.error);
                 }
             } catch (error) {
-                alert('Алдаа гарлаа: ' + error.message);
-            }
-        }
-
-        // Start camera
-        async function startCamera(id) {
-            if (!confirm('Камер эхлүүлэх үү?')) return;
-
-            try {
-                const response = await fetch(`http://localhost:3008/cameras/${id}/start`, {
-                    method: 'POST'
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    alert(result.message);
-                    loadCameras();
-                } else {
-                    alert('Алдаа: ' + result.error);
-                }
-            } catch (error) {
-                alert('Алдаа гарлаа: ' + error.message);
-            }
-        }
-
-        // Stop camera
-        async function stopCamera(id) {
-            if (!confirm('Камер зогсоох уу?')) return;
-
-            try {
-                const response = await fetch(`http://localhost:3008/cameras/${id}/stop`, {
-                    method: 'POST'
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    alert(result.message);
-                    loadCameras();
-                } else {
-                    alert('Алдаа: ' + result.error);
-                }
-            } catch (error) {
-                alert('Алдаа гарлаа: ' + error.message);
+                showToast('Алдаа гарлаа: ' + error.message, 'danger');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = 'Хадгалах';
             }
         }
 
         // Delete camera
         async function deleteCamera(id) {
-            if (!confirm('Камер устгах уу? Энэ үйлдлийг буцаах боломжгүй!')) return;
+            const camera = cameras.find(c => c.id === id);
+            if (!camera) return;
+
+            if (!confirm(`"${camera.name}" камерыг устгах уу?`)) return;
 
             try {
-                const response = await fetch(`http://localhost:3008/cameras/${id}`, {
-                    method: 'DELETE'
-                });
-
-                const result = await response.json();
+                const result = await api.delete(`/admin/cameras/${id}`);
 
                 if (result.success) {
-                    alert(result.message);
+                    showToast(result.message || 'Камер устгагдлаа', 'success');
                     loadCameras();
                 } else {
-                    alert('Алдаа: ' + result.error);
+                    throw new Error(result.error);
                 }
             } catch (error) {
-                alert('Алдаа гарлаа: ' + error.message);
+                showToast('Устгахад алдаа гарлаа: ' + error.message, 'danger');
             }
         }
 
         // View details
         function viewDetails(id) {
-            window.location.href = `camera-details.html?id=${id}`;
+            const camera = cameras.find(c => c.id === id);
+            if (!camera) return;
+
+            const details = `
+ID: ${camera.id}
+Нэр: ${camera.name}
+Байршил: ${camera.location}
+Координат: ${formatCoordinates(camera.latitude, camera.longitude)}
+IP: ${camera.ip_address || '-'}
+Stream URL: ${camera.stream_url || '-'}
+Төлөв: ${camera.status}
+Online: ${camera.is_online ? 'Тийм' : 'Үгүй'}
+Нийт ослууд: ${camera.total_accidents || 0}
+24 цагийн ослууд: ${camera.accidents_24h || 0}
+Сүүлийн осол: ${camera.last_accident_time ? formatDateTime(camera.last_accident_time) : '-'}
+            `.trim();
+
+            alert(details);
         }
 
         // Refresh cameras
         function refreshCameras() {
             loadCameras();
+            showToast('Шинэчлэгдлээ', 'success');
         }
     </script>
 </body>

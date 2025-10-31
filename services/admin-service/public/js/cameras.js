@@ -1,4 +1,4 @@
-// services/admin-service/public/js/cameras.js - COMPLETE VERSION
+// services/admin-service/public/js/cameras.js - CORRECTED VERSION
 let camerasData = [];
 let pagination = null;
 let currentFilters = { page: 1, limit: 50, status: '' };
@@ -47,6 +47,7 @@ async function loadCameras() {
   showLoading('cameras-table-body');
   try {
     const params = { ...currentFilters };
+    // Use admin service API instead of camera service
     const result = await api.get('/admin/cameras', params);
     
     if (result.success) {
@@ -59,15 +60,22 @@ async function loadCameras() {
       throw new Error(result.error);
     }
   } catch (error) {
-    document.getElementById('cameras-table-body').innerHTML = 
-      '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--danger);">' +
-      '<i class="fas fa-exclamation-circle" style="font-size: 2rem;"></i>' +
-      '<p>Камерын мэдээлэл ачааллахад алдаа гарлаа</p></td></tr>';
+    console.error('Load cameras error:', error);
+    const tbody = document.getElementById('cameras-table-body');
+    if (tbody) {
+      tbody.innerHTML = 
+        '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--danger);">' +
+        '<i class="fas fa-exclamation-circle" style="font-size: 2rem;"></i>' +
+        '<p>Камерын мэдээлэл ачааллахад алдаа гарлаа</p></td></tr>';
+    }
+    showToast('Камер ачааллахад алдаа гарлаа', 'danger');
   }
 }
 
 function renderCamerasTable(cameras) {
   const tbody = document.getElementById('cameras-table-body');
+  
+  if (!tbody) return;
   
   if (!cameras || !cameras.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem;">' +
@@ -124,9 +132,14 @@ function getCameraStatusBadge(status) {
 
 function openAddCameraModal() {
   editingCamera = null;
-  document.getElementById('modal-title').textContent = 'Камер нэмэх';
-  document.getElementById('camera-form').reset();
-  document.getElementById('camera-modal').style.display = 'flex';
+  const modalTitle = document.getElementById('modal-title');
+  const form = document.getElementById('camera-form');
+  
+  if (modalTitle) modalTitle.textContent = 'Камер нэмэх';
+  if (form) form.reset();
+  
+  const modal = document.getElementById('camera-modal');
+  if (modal) modal.style.display = 'flex';
 }
 
 function editCamera(id) {
@@ -134,35 +147,48 @@ function editCamera(id) {
   if (!camera) return;
 
   editingCamera = camera;
-  document.getElementById('modal-title').textContent = 'Камер засах';
-  document.getElementById('camera-name').value = camera.name;
-  document.getElementById('camera-location').value = camera.location;
-  document.getElementById('camera-latitude').value = camera.latitude;
-  document.getElementById('camera-longitude').value = camera.longitude;
-  document.getElementById('camera-ip').value = camera.ip_address || '';
-  document.getElementById('camera-stream').value = camera.stream_url || '';
-  document.getElementById('camera-description').value = camera.description || '';
-  document.getElementById('camera-status').value = camera.status;
   
-  document.getElementById('camera-modal').style.display = 'flex';
+  const modalTitle = document.getElementById('modal-title');
+  if (modalTitle) modalTitle.textContent = 'Камер засах';
+  
+  // Fill form fields
+  const fields = {
+    'camera-name': camera.name,
+    'camera-location': camera.location,
+    'camera-latitude': camera.latitude,
+    'camera-longitude': camera.longitude,
+    'camera-ip': camera.ip_address || '',
+    'camera-stream': camera.stream_url || '',
+    'camera-description': camera.description || '',
+    'camera-status': camera.status || 'active'
+  };
+  
+  Object.entries(fields).forEach(([id, value]) => {
+    const field = document.getElementById(id);
+    if (field) field.value = value;
+  });
+  
+  const modal = document.getElementById('camera-modal');
+  if (modal) modal.style.display = 'flex';
 }
 
 function closeModal(modalId) {
-  document.getElementById(modalId).style.display = 'none';
+  const modal = document.getElementById(modalId || 'camera-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 async function saveCameraForm(event) {
   event.preventDefault();
   
   const formData = {
-    name: document.getElementById('camera-name').value.trim(),
-    location: document.getElementById('camera-location').value.trim(),
-    latitude: parseFloat(document.getElementById('camera-latitude').value),
-    longitude: parseFloat(document.getElementById('camera-longitude').value),
-    ip_address: document.getElementById('camera-ip').value.trim(),
-    stream_url: document.getElementById('camera-stream').value.trim(),
-    description: document.getElementById('camera-description').value.trim(),
-    status: document.getElementById('camera-status').value,
+    name: document.getElementById('camera-name')?.value.trim(),
+    location: document.getElementById('camera-location')?.value.trim(),
+    latitude: parseFloat(document.getElementById('camera-latitude')?.value),
+    longitude: parseFloat(document.getElementById('camera-longitude')?.value),
+    ip_address: document.getElementById('camera-ip')?.value.trim() || null,
+    stream_url: document.getElementById('camera-stream')?.value.trim() || null,
+    description: document.getElementById('camera-description')?.value.trim() || null,
+    status: document.getElementById('camera-status')?.value || 'active',
   };
 
   // Validation
@@ -177,8 +203,10 @@ async function saveCameraForm(event) {
   }
 
   const saveBtn = document.getElementById('save-camera-btn');
-  saveBtn.disabled = true;
-  saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Хадгалж байна...';
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Хадгалж байна...';
+  }
 
   try {
     let result;
@@ -196,10 +224,13 @@ async function saveCameraForm(event) {
       throw new Error(result.error);
     }
   } catch (error) {
+    console.error('Save camera error:', error);
     showToast('Алдаа гарлаа: ' + error.message, 'danger');
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.innerHTML = '<i class="fas fa-save"></i> Хадгалах';
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="fas fa-save"></i> Хадгалах';
+    }
   }
 }
 
@@ -218,6 +249,7 @@ async function deleteCamera(id) {
       throw new Error(result.error);
     }
   } catch (error) {
+    console.error('Delete camera error:', error);
     showToast('Устгахад алдаа гарлаа: ' + error.message, 'danger');
   }
 }
@@ -263,7 +295,14 @@ function exportCameras() {
   exportToCSV(exportData, `cameras_${formatDate(new Date())}.csv`);
 }
 
-document.addEventListener('DOMContentLoaded', initCameras);
+// Initialize on DOM load if not already initialized
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initCameras);
+} else if (typeof window.initCameras === 'undefined') {
+  initCameras();
+}
+
+// Export functions to window
 window.initCameras = initCameras;
 window.openAddCameraModal = openAddCameraModal;
 window.editCamera = editCamera;

@@ -1,4 +1,4 @@
-// services/camera-service/src/services/hlsProcessor.js
+// services/camera-service/src/services/hlsProcessor.js - COMPLETE HLS PROCESSOR
 /**
  * HLS Stream Processor
  * UB Traffic болон бусад HLS stream-үүдийг боловсруулах
@@ -489,7 +489,7 @@ class HLSStreamProcessor {
     try {
       await pool.query(`
         UPDATE cameras 
-        SET is_recording = $1, updated_at = NOW()
+        SET is_recording = $1, is_online = true, updated_at = NOW()
         WHERE id = $2
       `, [isRecording, this.camera.id]);
     } catch (error) {
