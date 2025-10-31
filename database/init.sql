@@ -539,3 +539,159 @@ BEGIN
     RAISE NOTICE '';
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
 END $$;
+
+-- Migration: Add camera recording and stream fields
+-- Date: 2025-10-31
+
+-- =====================================================
+-- ADD NEW COLUMNS TO CAMERAS TABLE
+-- =====================================================
+
+-- Бичлэгийн статус
+ALTER TABLE cameras 
+ADD COLUMN IF NOT EXISTS is_recording BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS last_frame_time TIMESTAMP,
+ADD COLUMN IF NOT EXISTS frames_captured INTEGER DEFAULT 0,
+ADD COLUMN IF NOT EXISTS last_error TEXT,
+ADD COLUMN IF NOT EXISTS stream_type VARCHAR(20) DEFAULT 'hls';
+
+-- Index нэмэх
+CREATE INDEX IF NOT EXISTS idx_cameras_recording ON cameras(is_recording) WHERE is_recording = true;
+CREATE INDEX IF NOT EXISTS idx_cameras_last_frame ON cameras(last_frame_time DESC);
+
+-- =====================================================
+-- CAMERA FRAMES TABLE (AI боловсруулалтын frame-үүд)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS camera_frames (
+    id SERIAL PRIMARY KEY,
+    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
+    frame_number INTEGER NOT NULL,
+    timestamp TIMESTAMP DEFAULT NOW(),
+    image_path TEXT,
+    image_url TEXT,
+    processed BOOLEAN DEFAULT false,
+    detection_count INTEGER DEFAULT 0,
+    
+    CONSTRAINT unique_camera_frame UNIQUE (camera_id, frame_number, timestamp)
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_frames_camera ON camera_frames(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_frames_processed ON camera_frames(processed) WHERE processed = false;
+CREATE INDEX IF NOT EXISTS idx_camera_frames_timestamp ON camera_frames(timestamp DESC);
+
+-- =====================================================
+-- CAMERA DETECTIONS (камераас илэрсэн объектууд)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS camera_detections (
+    id SERIAL PRIMARY KEY,
+    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
+    frame_id INTEGER REFERENCES camera_frames(id) ON DELETE CASCADE,
+    detection_time TIMESTAMP DEFAULT NOW(),
+    
+    -- Detection мэдээлэл
+    object_class VARCHAR(50) NOT NULL,
+    confidence DECIMAL(5, 4) NOT NULL,
+    bbox_x DECIMAL(8, 2),
+    bbox_y DECIMAL(8, 2),
+    bbox_width DECIMAL(8, 2),
+    bbox_height DECIMAL(8, 2),
+    
+    -- Осол байж болзошгүй
+    potential_accident BOOLEAN DEFAULT false,
+    accident_id INTEGER REFERENCES accidents(id) ON DELETE SET NULL,
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_detections_camera ON camera_detections(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_detections_time ON camera_detections(detection_time DESC);
+CREATE INDEX IF NOT EXISTS idx_camera_detections_class ON camera_detections(object_class);
+CREATE INDEX IF NOT EXISTS idx_camera_detections_potential ON camera_detections(potential_accident) 
+    WHERE potential_accident = true;
+
+-- =====================================================
+-- FUNCTIONS
+-- =====================================================
+
+-- Камерын сүүлийн frame цагийг шинэчлэх
+CREATE OR REPLACE FUNCTION update_camera_last_frame()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE cameras 
+    SET last_frame_time = NOW(),
+        frames_captured = frames_captured + 1
+    WHERE id = NEW.camera_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_camera_frame ON camera_frames;
+CREATE TRIGGER trigger_update_camera_frame
+AFTER INSERT ON camera_frames
+FOR EACH ROW
+EXECUTE FUNCTION update_camera_last_frame();
+
+-- =====================================================
+-- VIEWS
+-- =====================================================
+
+-- Камерын бодит цагийн статистик
+CREATE OR REPLACE VIEW camera_live_stats AS
+SELECT 
+    c.id,
+    c.name,
+    c.location,
+    c.is_online,
+    c.is_recording,
+    c.last_frame_time,
+    c.frames_captured,
+    COUNT(DISTINCT cf.id) as total_frames,
+    COUNT(DISTINCT cd.id) as total_detections,
+    COUNT(DISTINCT cd.id) FILTER (WHERE cd.potential_accident = true) as potential_accidents,
+    MAX(cd.detection_time) as last_detection_time,
+    COUNT(DISTINCT a.id) as accidents_created
+FROM cameras c
+LEFT JOIN camera_frames cf ON c.id = cf.camera_id AND cf.timestamp >= NOW() - INTERVAL '1 hour'
+LEFT JOIN camera_detections cd ON c.id = cd.camera_id AND cd.detection_time >= NOW() - INTERVAL '1 hour'
+LEFT JOIN accidents a ON c.id = a.camera_id AND a.accident_time >= NOW() - INTERVAL '1 hour'
+GROUP BY c.id, c.name, c.location, c.is_online, c.is_recording, c.last_frame_time, c.frames_captured;
+
+-- =====================================================
+-- SAMPLE DATA UPDATE
+-- =====================================================
+
+-- Одоо байгаа камеруудыг шинэчлэх
+UPDATE cameras 
+SET stream_type = 'hls',
+    is_recording = false,
+    frames_captured = 0
+WHERE stream_url LIKE '%m3u8%';
+
+UPDATE cameras 
+SET stream_type = 'rtsp',
+    is_recording = false,
+    frames_captured = 0
+WHERE stream_url LIKE 'rtsp://%';
+
+-- =====================================================
+-- COMMENTS
+-- =====================================================
+
+COMMENT ON TABLE camera_frames IS 'Камераас татаж авсан frame-үүд';
+COMMENT ON TABLE camera_detections IS 'Камерын frame дээр илэрсэн объектууд';
+COMMENT ON COLUMN cameras.is_recording IS 'Одоо бичлэг авч байгаа эсэх';
+COMMENT ON COLUMN cameras.last_frame_time IS 'Сүүлийн frame-ийн цаг';
+COMMENT ON COLUMN cameras.frames_captured IS 'Нийт авсан frame-үүдийн тоо';
+
+-- =====================================================
+-- COMPLETION MESSAGE
+-- =====================================================
+
+DO $$
+BEGIN
+    RAISE NOTICE '✅ Camera recording fields migration completed!';
+    RAISE NOTICE '📊 Added: camera_frames, camera_detections tables';
+    RAISE NOTICE '🔧 Added: triggers and views for real-time stats';
+END $$;
