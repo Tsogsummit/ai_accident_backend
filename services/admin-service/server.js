@@ -1,4 +1,4 @@
-// services/admin-service/server.js - ENHANCED VERSION
+// services/admin-service/server.js - FIXED VERSION WITH BETTER HEALTH CHECKS
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -37,14 +37,26 @@ const pool = new Pool({
 
 pool.on('error', (err) => console.error('PostgreSQL pool error:', err));
 
-// Redis
+// Redis - Better error handling
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
-  retryStrategy: (times) => Math.min(times * 50, 2000),
+  password: process.env.REDIS_PASSWORD || undefined,
+  retryStrategy: (times) => {
+    if (times > 10) {
+      console.error('Redis: Max retries reached, giving up');
+      return null;
+    }
+    const delay = Math.min(times * 50, 2000);
+    console.log(`Redis: Retry attempt ${times}, waiting ${delay}ms`);
+    return delay;
+  },
+  maxRetriesPerRequest: 3,
+  enableOfflineQueue: false,
 });
 
 redis.on('error', (err) => console.error('Redis error:', err));
+redis.on('connect', () => console.log('✅ Redis connected'));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
 const BCRYPT_ROUNDS = 12;
@@ -159,10 +171,15 @@ app.post('/admin/login', async (req, res) => {
 app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
   try {
     const cacheKey = 'admin:dashboard:stats';
-    const cached = await redis.get(cacheKey);
-
-    if (cached) {
-      return res.json({ success: true, source: 'cache', data: JSON.parse(cached) });
+    
+    // Try cache first
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return res.json({ success: true, source: 'cache', data: JSON.parse(cached) });
+      }
+    } catch (redisErr) {
+      console.warn('Redis cache read failed:', redisErr.message);
     }
 
     const [
@@ -226,7 +243,12 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
       }
     };
 
-    await redis.setex(cacheKey, 60, JSON.stringify(stats));
+    // Try to cache (but don't fail if Redis is down)
+    try {
+      await redis.setex(cacheKey, 60, JSON.stringify(stats));
+    } catch (redisErr) {
+      console.warn('Redis cache write failed:', redisErr.message);
+    }
 
     res.json({ success: true, source: 'database', data: stats });
 
@@ -322,7 +344,10 @@ app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
     }
 
-    await redis.del('admin:dashboard:stats');
+    // Clear cache (non-blocking)
+    redis.del('admin:dashboard:stats').catch(err => 
+      console.warn('Cache clear failed:', err.message)
+    );
 
     res.json({ success: true, message: 'Төлөв шинэчлэгдлээ', data: result.rows[0] });
 
@@ -342,7 +367,7 @@ app.delete('/admin/accidents/:id', authenticateAdmin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
     }
 
-    await redis.del('admin:dashboard:stats');
+    redis.del('admin:dashboard:stats').catch(err => console.warn('Cache clear failed:', err.message));
 
     res.json({ success: true, message: 'Осол устгагдлаа' });
 
@@ -411,6 +436,9 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: 'Алдаа гарлаа' });
   }
 });
+
+// User CRUD operations continue...
+// (Keeping the rest of the user management endpoints as they were)
 
 app.post('/admin/users', authenticateAdmin, async (req, res) => {
   const client = await pool.connect();
@@ -526,7 +554,6 @@ app.delete('/admin/users/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Don't allow deleting yourself
     if (parseInt(id) === req.user.userId) {
       return res.status(400).json({ 
         success: false, 
@@ -723,7 +750,7 @@ app.delete('/admin/cameras/:id', authenticateAdmin, async (req, res) => {
 });
 
 // ==========================================
-// SERVICE HEALTH CHECK
+// SERVICE HEALTH CHECK - FIXED VERSION
 // ==========================================
 
 app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
@@ -740,21 +767,48 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
 
   const healthChecks = await Promise.all(
     services.map(async (service) => {
+      const startTime = Date.now();
       try {
-        const response = await axios.get(`${service.url}/health`, { timeout: 3000 });
+        const response = await axios.get(`${service.url}/health`, { 
+          timeout: 5000,
+          validateStatus: (status) => status < 600
+        });
+        
+        const responseTime = `${Date.now() - startTime}ms`;
+        
+        const isHealthy = response.status === 200 && 
+                         response.data && 
+                         (response.data.status === 'healthy' || response.data.status === 'ok');
+        
         return {
           name: service.name,
-          status: 'healthy',
+          status: isHealthy ? 'healthy' : 'unhealthy',
           url: service.url,
           details: response.data,
-          responseTime: response.headers['x-response-time'] || 'N/A'
+          responseTime: responseTime,
+          error: isHealthy ? null : `Service returned status: ${response.data.status || 'unknown'}`
         };
       } catch (error) {
+        const responseTime = `${Date.now() - startTime}ms`;
+        
+        let errorMsg = 'Connection failed';
+        if (error.code === 'ECONNREFUSED') {
+          errorMsg = 'Connection refused - service may be down';
+        } else if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+          errorMsg = 'Connection timeout';
+        } else if (error.code === 'ENOTFOUND') {
+          errorMsg = 'Service not found - DNS resolution failed';
+        } else if (error.response) {
+          errorMsg = `HTTP ${error.response.status}: ${error.response.statusText}`;
+        }
+        
         return {
           name: service.name,
           status: 'unhealthy',
           url: service.url,
-          error: error.message
+          error: errorMsg,
+          responseTime: responseTime,
+          details: null
         };
       }
     })
@@ -762,29 +816,36 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
 
   // Database health
   let dbHealth = 'healthy';
+  let dbError = null;
   try {
     await pool.query('SELECT 1');
   } catch (err) {
     dbHealth = 'unhealthy';
+    dbError = err.message;
   }
 
   // Redis health
   let redisHealth = 'healthy';
+  let redisError = null;
   try {
     await redis.ping();
   } catch (err) {
     redisHealth = 'unhealthy';
+    redisError = err.message;
   }
+
+  const allHealthy = healthChecks.every(s => s.status === 'healthy') && 
+                     dbHealth === 'healthy' && 
+                     redisHealth === 'healthy';
 
   res.json({
     success: true,
     data: {
       services: healthChecks,
-      database: { status: dbHealth },
-      redis: { status: redisHealth },
-      overallStatus: healthChecks.every(s => s.status === 'healthy') && 
-                     dbHealth === 'healthy' && redisHealth === 'healthy' 
-                     ? 'healthy' : 'degraded'
+      database: { status: dbHealth, error: dbError },
+      redis: { status: redisHealth, error: redisError },
+      overallStatus: allHealthy ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString()
     }
   });
 });
@@ -849,6 +910,9 @@ process.on('SIGTERM', async () => {
 app.listen(PORT, () => {
   console.log(`👨‍💼 Admin Service running on port ${PORT}`);
   console.log(`📁 Static files: ${path.join(__dirname, 'public')}`);
+  console.log(`🔒 JWT Secret: ${JWT_SECRET.substring(0, 10)}...`);
+  console.log(`📊 Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+  console.log(`💾 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 });
 
 module.exports = app;

@@ -1,4 +1,4 @@
-// services/accident-service/server.js - FIXED VERSION
+// services/accident-service/server.js - FIXED VERSION WITH BETTER ERROR HANDLING
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3002;
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// ✅ FIXED: User-based rate limiting
+// ✅ User-based rate limiting
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -32,7 +32,6 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    // User ID + IP хослол ашиглах
     return req.user?.userId 
       ? `${req.user.userId}:${req.ip}` 
       : req.ip;
@@ -40,7 +39,7 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// PostgreSQL холболт with better error handling
+// PostgreSQL with better error handling
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -54,22 +53,36 @@ const pool = new Pool({
 
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
-  process.exit(-1);
 });
 
-// Redis кэш with error handling
+pool.on('connect', () => {
+  console.log('✅ PostgreSQL connected');
+});
+
+// Redis with better error handling
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
+  password: process.env.REDIS_PASSWORD || undefined,
   retryStrategy: (times) => {
+    if (times > 10) {
+      console.error('Redis: Max retries reached');
+      return null;
+    }
     const delay = Math.min(times * 50, 2000);
+    console.log(`Redis: Retry attempt ${times}, waiting ${delay}ms`);
     return delay;
   },
   maxRetriesPerRequest: 3,
+  enableOfflineQueue: false,
 });
 
 redis.on('error', (err) => {
-  console.error('Redis error:', err);
+  console.error('Redis error:', err.message);
+});
+
+redis.on('connect', () => {
+  console.log('✅ Redis connected');
 });
 
 // JWT Authentication Middleware
@@ -108,7 +121,7 @@ const validate = (req, res, next) => {
   next();
 };
 
-// Socket.IO холболт удирдах
+// Socket.IO connection management
 const userSockets = new Map();
 
 io.on('connection', (socket) => {
@@ -142,7 +155,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// ✅ FIXED: GET /accidents - accident_time column ашиглана
+// ==========================================
+// ACCIDENTS API
+// ==========================================
+
+// ✅ GET /accidents - with accident_time column
 app.get('/accidents', 
   authenticateToken,
   [
@@ -159,17 +176,21 @@ app.get('/accidents',
       // Cache key
       const cacheKey = `accidents:${status || 'all'}:${severity || 'all'}:${limit}:${offset}`;
       
-      // Check cache
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return res.json({
-          success: true,
-          source: 'cache',
-          data: JSON.parse(cached),
-        });
+      // Check cache (but don't fail if Redis is down)
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          return res.json({
+            success: true,
+            source: 'cache',
+            data: JSON.parse(cached),
+          });
+        }
+      } catch (redisErr) {
+        console.warn('Redis cache read failed:', redisErr.message);
       }
 
-      // ✅ FIXED: Column name corrected to accident_time
+      // ✅ Column name corrected to accident_time
       let queryText = `
         SELECT 
           a.*,
@@ -200,7 +221,7 @@ app.get('/accidents',
         params.push(severity);
       }
 
-      // ✅ FIXED: Column name corrected
+      // ✅ Column name corrected
       queryText += `
         GROUP BY a.id, u.name, u.phone, c.name
         ORDER BY a.accident_time DESC
@@ -211,8 +232,12 @@ app.get('/accidents',
 
       const result = await pool.query(queryText, params);
 
-      // Cache result (5 minutes)
-      await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
+      // Cache result (5 minutes) - non-blocking
+      try {
+        await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
+      } catch (redisErr) {
+        console.warn('Redis cache write failed:', redisErr.message);
+      }
 
       res.json({
         success: true,
@@ -232,7 +257,7 @@ app.get('/accidents',
   }
 );
 
-// ✅ FIXED: POST /accidents - better validation and error handling
+// ✅ POST /accidents - better validation and error handling
 app.post('/accidents',
   authenticateToken,
   [
@@ -261,7 +286,7 @@ app.post('/accidents',
 
       await client.query('BEGIN');
 
-      // ✅ FIXED: accident_time column ашиглана
+      // ✅ accident_time column used
       const accidentResult = await client.query(`
         INSERT INTO accidents (
           user_id, latitude, longitude, description, 
@@ -281,10 +306,14 @@ app.post('/accidents',
 
       await client.query('COMMIT');
 
-      // Clear cache
-      const keys = await redis.keys('accidents:*');
-      if (keys.length > 0) {
-        await redis.del(...keys);
+      // Clear cache (non-blocking)
+      try {
+        const keys = await redis.keys('accidents:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } catch (redisErr) {
+        console.warn('Cache clear failed:', redisErr.message);
       }
 
       // Notify nearby users (async, don't wait)
@@ -392,10 +421,14 @@ app.put('/accidents/:id/status',
         });
       }
 
-      // Clear cache
-      const keys = await redis.keys('accidents:*');
-      if (keys.length > 0) {
-        await redis.del(...keys);
+      // Clear cache (non-blocking)
+      try {
+        const keys = await redis.keys('accidents:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } catch (redisErr) {
+        console.warn('Cache clear failed:', redisErr.message);
       }
 
       res.json({
@@ -414,27 +447,34 @@ app.put('/accidents/:id/status',
   }
 );
 
-// Ойролцоох хэрэглэгчдэд мэдэгдэл илгээх функц
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
 async function notifyNearbyUsers(accident, radiusMeters) {
   try {
     const keys = await redis.keys('user:*:location');
     const nearbyUsers = [];
     
     for (const key of keys) {
-      const locationData = await redis.get(key);
-      if (!locationData) continue;
-      
-      const { latitude, longitude } = JSON.parse(locationData);
-      const distance = calculateDistance(
-        accident.latitude,
-        accident.longitude,
-        latitude,
-        longitude
-      );
-      
-      if (distance <= radiusMeters) {
-        const userId = key.split(':')[1];
-        nearbyUsers.push(userId);
+      try {
+        const locationData = await redis.get(key);
+        if (!locationData) continue;
+        
+        const { latitude, longitude } = JSON.parse(locationData);
+        const distance = calculateDistance(
+          accident.latitude,
+          accident.longitude,
+          latitude,
+          longitude
+        );
+        
+        if (distance <= radiusMeters) {
+          const userId = key.split(':')[1];
+          nearbyUsers.push(userId);
+        }
+      } catch (err) {
+        console.error('Error processing user location:', err);
       }
     }
 
@@ -448,7 +488,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           longitude: accident.longitude,
           severity: accident.severity,
           description: accident.description,
-          timestamp: accident.accident_time,  // ✅ FIXED
+          timestamp: accident.accident_time,
         });
       }
     }
@@ -463,7 +503,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
 
 // Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3;
+  const R = 6371e3; // Earth radius in meters
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -477,6 +517,52 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+// ==========================================
+// HEALTH CHECK - IMPROVED
+// ==========================================
+
+app.get('/health', async (req, res) => {
+  const health = {
+    status: 'healthy',
+    service: 'accident-service',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  };
+
+  let hasError = false;
+
+  // Check database
+  try {
+    await pool.query('SELECT 1');
+    health.database = 'connected';
+  } catch (err) {
+    health.database = 'disconnected';
+    health.databaseError = err.message;
+    health.status = 'unhealthy';
+    hasError = true;
+  }
+
+  // Check Redis
+  try {
+    await redis.ping();
+    health.redis = 'connected';
+  } catch (err) {
+    health.redis = 'disconnected';
+    health.redisError = err.message;
+    health.status = 'unhealthy';
+    hasError = true;
+  }
+
+  // Socket.IO status
+  health.socketio = {
+    connected: io.engine.clientsCount,
+    registered: userSockets.size
+  };
+
+  const statusCode = hasError ? 503 : 200;
+  res.status(statusCode).json(health);
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -488,47 +574,31 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Health check - improved
-app.get('/health', async (req, res) => {
-  const health = {
-    status: 'healthy',
-    service: 'accident-service',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  };
-
-  try {
-    // Check database
-    await pool.query('SELECT 1');
-    health.database = 'connected';
-  } catch (err) {
-    health.database = 'disconnected';
-    health.status = 'unhealthy';
-  }
-
-  try {
-    // Check Redis
-    await redis.ping();
-    health.redis = 'connected';
-  } catch (err) {
-    health.redis = 'disconnected';
-    health.status = 'unhealthy';
-  }
-
-  const statusCode = health.status === 'healthy' ? 200 : 503;
-  res.status(statusCode).json(health);
-});
-
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
+  
+  // Close server
   server.close(() => {
     console.log('HTTP server closed');
   });
   
+  // Close Socket.IO connections
+  io.close(() => {
+    console.log('Socket.IO closed');
+  });
+  
+  // Close database and Redis
   await pool.end();
   await redis.quit();
   
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down...');
+  await pool.end();
+  await redis.quit();
   process.exit(0);
 });
 
@@ -536,7 +606,9 @@ server.listen(PORT, () => {
   console.log(`🚗 Accident Service running on port ${PORT}`);
   console.log(`🔌 Socket.IO ready for WebSocket connections`);
   console.log(`🔒 Security: Helmet enabled`);
-  console.log(`⚡ Rate limiting: User-based`);
+  console.log(`⚡ Rate limiting: User-based (100 req/min)`);
+  console.log(`📊 Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+  console.log(`💾 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 });
 
 module.exports = app;

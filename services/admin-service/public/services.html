@@ -87,8 +87,8 @@
               <div class="health-stat-label">Алдаатай</div>
             </div>
             <div class="health-stat">
-              <div class="health-stat-value" id="system-uptime">-</div>
-              <div class="health-stat-label">System Uptime</div>
+              <div class="health-stat-value" id="system-status">-</div>
+              <div class="health-stat-label">Нийт төлөв</div>
             </div>
           </div>
         </div>
@@ -111,62 +111,85 @@
   <script src="/js/utils.js"></script>
   <script src="/js/auth.js"></script>
   <script>
-    const services = [
-      { name: 'API Gateway', port: 3000, icon: 'globe', color: 'primary' },
-      { name: 'User Service', port: 3001, icon: 'users', color: 'primary' },
-      { name: 'Accident Service', port: 3002, icon: 'exclamation-triangle', color: 'danger' },
-      { name: 'Video Service', port: 3003, icon: 'film', color: 'primary' },
-      { name: 'AI Detection', port: 3004, icon: 'robot', color: 'success' },
-      { name: 'Notification', port: 3005, icon: 'bell', color: 'warning' },
-      { name: 'Map Service', port: 3006, icon: 'map', color: 'primary' },
-      { name: 'Report Service', port: 3007, icon: 'chart-bar', color: 'primary' },
-      { name: 'Camera Service', port: 3008, icon: 'video', color: 'primary' },
-      { name: 'Admin Service', port: 3009, icon: 'user-shield', color: 'success' }
-    ];
+    const serviceMetadata = {
+      'User Service': { icon: 'users', color: 'primary', port: 3001 },
+      'Accident Service': { icon: 'exclamation-triangle', color: 'danger', port: 3002 },
+      'Video Service': { icon: 'film', color: 'primary', port: 3003 },
+      'AI Service': { icon: 'robot', color: 'success', port: 3004 },
+      'Notification Service': { icon: 'bell', color: 'warning', port: 3005 },
+      'Map Service': { icon: 'map', color: 'primary', port: 3006 },
+      'Report Service': { icon: 'chart-bar', color: 'primary', port: 3007 },
+      'Camera Service': { icon: 'video', color: 'primary', port: 3008 }
+    };
 
     let servicesData = [];
     let refreshInterval = null;
 
     async function loadServices() {
       try {
-        const promises = services.map(async (service) => {
-          try {
-            const response = await fetch(`http://localhost:${service.port}/health`, {
-              method: 'GET',
-              headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-              const data = await response.json();
-              return {
-                ...service,
-                status: data.status || 'healthy',
-                health: data,
-                error: null
-              };
-            } else {
-              return {
-                ...service,
-                status: 'unhealthy',
-                health: null,
-                error: `HTTP ${response.status}`
-              };
-            }
-          } catch (error) {
+        // ✅ Use server-side health check endpoint (not client-side fetch)
+        const result = await api.get('/admin/services/health');
+        
+        if (result.success) {
+          // Map the server response to our UI format
+          servicesData = result.data.services.map(service => {
+            const metadata = serviceMetadata[service.name] || { icon: 'server', color: 'primary', port: '?' };
             return {
-              ...service,
-              status: 'unhealthy',
-              health: null,
-              error: 'Connection failed'
+              name: service.name,
+              port: metadata.port,
+              icon: metadata.icon,
+              color: metadata.color,
+              status: service.status,
+              health: service.details || null,
+              error: service.error || null,
+              responseTime: service.responseTime
             };
-          }
-        });
+          });
 
-        servicesData = await Promise.all(promises);
-        renderServices(servicesData);
-        updateSummary(servicesData);
+          // Add database and redis status
+          servicesData.push({
+            name: 'PostgreSQL Database',
+            port: 5432,
+            icon: 'database',
+            color: 'primary',
+            status: result.data.database.status,
+            health: { status: result.data.database.status },
+            error: null
+          });
+
+          servicesData.push({
+            name: 'Redis Cache',
+            port: 6379,
+            icon: 'memory',
+            color: 'warning',
+            status: result.data.redis.status,
+            health: { status: result.data.redis.status },
+            error: null
+          });
+
+          renderServices(servicesData);
+          updateSummary(servicesData, result.data.overallStatus);
+        } else {
+          throw new Error(result.error || 'Failed to load services');
+        }
       } catch (error) {
         console.error('Load services error:', error);
+        showToast('Сервисүүдийн төлөв ачааллахад алдаа гарлаа', 'danger');
+        
+        // Show error state
+        const container = document.getElementById('services-container');
+        if (container) {
+          container.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: var(--danger);">
+              <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+              <p>Сервисүүдийн төлөв ачааллахад алдаа гарлаа</p>
+              <p style="font-size: 0.875rem; color: var(--secondary); margin-top: 0.5rem;">${error.message}</p>
+              <button class="btn btn-primary" onclick="loadServices()" style="margin-top: 1rem;">
+                <i class="fas fa-sync"></i> Дахин оролдох
+              </button>
+            </div>
+          `;
+        }
       }
     }
 
@@ -195,10 +218,12 @@
                   <span>Port:</span>
                   <strong>${service.port}</strong>
                 </div>
-                <div class="service-detail-item">
-                  <span>Uptime:</span>
-                  <strong>${formatUptime(service.health.uptime)}</strong>
-                </div>
+                ${service.health.uptime ? `
+                  <div class="service-detail-item">
+                    <span>Uptime:</span>
+                    <strong>${formatUptime(service.health.uptime)}</strong>
+                  </div>
+                ` : ''}
                 ${service.health.database ? `
                   <div class="service-detail-item">
                     <span>Database:</span>
@@ -221,6 +246,12 @@
                     <small>${formatTime(service.health.timestamp)}</small>
                   </div>
                 ` : ''}
+                ${service.responseTime && service.responseTime !== 'N/A' ? `
+                  <div class="service-detail-item">
+                    <span>Response Time:</span>
+                    <small>${service.responseTime}</small>
+                  </div>
+                ` : ''}
               ` : `
                 <div class="alert alert-danger" style="margin: 0; padding: 0.5rem; font-size: 0.875rem;">
                   <i class="fas fa-exclamation-circle"></i> ${service.error || 'Холбогдож чадсангүй'}
@@ -228,19 +259,16 @@
               `}
             </div>
             <div class="service-actions">
-              <button class="btn btn-sm btn-primary" onclick="checkService(${service.port})" title="Шалгах">
+              <button class="btn btn-sm btn-primary" onclick="refreshSingleService('${service.name}')" title="Шалгах">
                 <i class="fas fa-sync-alt"></i> Шалгах
               </button>
-              <a href="http://localhost:${service.port}/health" target="_blank" class="btn btn-sm btn-secondary" title="Health endpoint">
-                <i class="fas fa-external-link-alt"></i>
-              </a>
             </div>
           </div>
         `;
       }).join('');
     }
 
-    function updateSummary(servicesList) {
+    function updateSummary(servicesList, overallStatus) {
       const total = servicesList.length;
       const healthy = servicesList.filter(s => s.status === 'healthy').length;
       const unhealthy = total - healthy;
@@ -249,11 +277,8 @@
       document.getElementById('healthy-services').textContent = healthy;
       document.getElementById('unhealthy-services').textContent = unhealthy;
       
-      // System uptime (use API Gateway uptime)
-      const apiGateway = servicesList.find(s => s.port === 3000);
-      if (apiGateway && apiGateway.health) {
-        document.getElementById('system-uptime').textContent = formatUptime(apiGateway.health.uptime);
-      }
+      const statusEl = document.getElementById('system-status');
+      statusEl.textContent = overallStatus === 'healthy' ? '✅ Хэвийн' : '⚠️ Алдаатай';
     }
 
     function formatUptime(seconds) {
@@ -264,18 +289,8 @@
       return `${minutes}м`;
     }
 
-    async function checkService(port) {
-      showToast('Шалгаж байна...', 'info');
-      try {
-        const response = await fetch(`http://localhost:${port}/health`);
-        if (response.ok) {
-          showToast('Сервис ажиллаж байна', 'success');
-        } else {
-          showToast('Сервис хариу өгсөнгүй', 'warning');
-        }
-      } catch (error) {
-        showToast('Холбогдож чадсангүй', 'danger');
-      }
+    async function refreshSingleService(serviceName) {
+      showToast(`${serviceName} шалгаж байна...`, 'info');
       await loadServices();
     }
 
