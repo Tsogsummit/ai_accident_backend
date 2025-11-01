@@ -754,6 +754,7 @@ app.delete('/admin/cameras/:id', authenticateAdmin, async (req, res) => {
 // ==========================================
 
 app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
+  const isDev = process.env.NODE_ENV !== 'production';
   const services = [
     { name: 'User Service', url: process.env.USER_SERVICE_URL || 'http://user-service:3001' },
     { name: 'Accident Service', url: process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002' },
@@ -762,7 +763,7 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005' },
     { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http://map-service:3006' },
     { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http://report-service:3007' },
-    { name: 'Camera Service', url: process.env.CAMERA_SERVICE_URL || 'http://camera-service:3008' },
+    { name: 'Camera Service', url: process.env.CAMERA_SERVICE_URL || `http://${isDev ? 'localhost' : 'camera-service'}:3008` },
   ];
 
   const healthChecks = await Promise.all(
