@@ -158,7 +158,8 @@ const SERVICES = {
   notification: process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005',
   map: process.env.MAP_SERVICE_URL || 'http://localhost:3006',
   report: process.env.REPORT_SERVICE_URL || 'http://localhost:3007',
-  camera: process.env.CAMERA_SERVICE_URL || 'http://localhost:3008'
+  camera: process.env.CAMERA_SERVICE_URL || 'http://localhost:3008',
+  admin: process.env.ADMIN_SERVICE_URL || 'http://localhost:3009'
 };
 
 // Logging middleware
