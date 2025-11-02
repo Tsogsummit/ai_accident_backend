@@ -1,27 +1,29 @@
 {
   "name": "camera-service",
   "version": "1.0.0",
-  "description": "Camera Stream Recording Service with HLS and RTSP support",
+  "description": "Camera monitoring and stream processing service",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js"
   },
-  "keywords": ["camera", "stream", "ffmpeg", "hls", "rtsp"],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
-    "fluent-ffmpeg": "^2.1.2",
-    "@google-cloud/storage": "^7.7.0",
-    "@google-cloud/pubsub": "^4.0.7",
     "pg": "^8.11.3",
-    "dotenv": "^16.3.1",
     "cors": "^2.8.5",
     "helmet": "^7.1.0",
-    "winston": "^3.11.0"
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "winston": "^3.11.0",
+    "@google-cloud/storage": "^7.7.0",
+    "@google-cloud/pubsub": "^4.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }
