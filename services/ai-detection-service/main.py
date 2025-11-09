@@ -394,6 +394,40 @@ async def process_video_endpoint(
         "videoId": request.videoId
     }
 
+# @app.post("/detect")
+# async def detect_frame(request: FrameDetectionRequest):
+#     """Real-time frame detection for camera service"""
+#     try:
+#         # Decode base64 image
+#         image_data = base64.b64decode(request.image)
+#         nparr = np.frombuffer(image_data, np.uint8)
+#         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+#         # YOLO detection
+#         results = model(frame, conf=0.5)
+        
+#         predictions = []
+#         for result in results:
+#             for box in result.boxes:
+#                 predictions.append({
+#                     'class_name': model.names[int(box.cls[0])],
+#                     'confidence': float(box.conf[0]),
+#                     'bbox': {
+#                         'x': float(box.xyxy[0][0]),
+#                         'y': float(box.xyxy[0][1]),
+#                         'width': float(box.xyxy[0][2] - box.xyxy[0][0]),
+#                         'height': float(box.xyxy[0][3] - box.xyxy[0][1])
+#                     }
+#                 })
+        
+#         return {
+#             'success': True,
+#             'predictions': predictions,
+#             'frameId': request.frameId
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -427,36 +461,3 @@ if __name__ == "__main__":
         log_level="info"
     )
 
-@app.post("/detect")
-async def detect_frame(request: FrameDetectionRequest):
-    """Real-time frame detection for camera service"""
-    try:
-        # Decode base64 image
-        image_data = base64.b64decode(request.image)
-        nparr = np.frombuffer(image_data, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        # YOLO detection
-        results = model(frame, conf=0.5)
-        
-        predictions = []
-        for result in results:
-            for box in result.boxes:
-                predictions.append({
-                    'class_name': model.names[int(box.cls[0])],
-                    'confidence': float(box.conf[0]),
-                    'bbox': {
-                        'x': float(box.xyxy[0][0]),
-                        'y': float(box.xyxy[0][1]),
-                        'width': float(box.xyxy[0][2] - box.xyxy[0][0]),
-                        'height': float(box.xyxy[0][3] - box.xyxy[0][1])
-                    }
-                })
-        
-        return {
-            'success': True,
-            'predictions': predictions,
-            'frameId': request.frameId
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
