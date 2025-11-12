@@ -2,7 +2,10 @@ fastapi
 uvicorn[standard]
 opencv-python-headless
 numpy
+pandas
 ultralytics
 google-cloud-storage
 google-cloud-pubsub
 psycopg2-binary
+pillow
+scipy
