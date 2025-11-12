@@ -1,4 +1,3 @@
-// Utility Functions
 function formatDate(dateString) {
   if (!dateString) return '-';
   const date = new Date(dateString);
@@ -57,12 +56,10 @@ function showToast(message, type = 'info') {
     container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999;';
     document.body.appendChild(container);
   }
-
   const toast = document.createElement('div');
   toast.className = `alert alert-${type}`;
   toast.style.cssText = 'min-width: 300px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);';
   toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-circle' : 'info-circle'}"></i> ${message}`;
-
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.transition = 'opacity 0.3s';
@@ -113,7 +110,6 @@ function exportToCSV(data, filename) {
       return str.includes(',') || str.includes('"') || str.includes('\n') ? `"${str.replace(/"/g, '""')}"` : str;
     }).join(','))
   ].join('\n');
-  
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -132,14 +128,11 @@ class Pagination {
     this.totalPages = options.totalPages || 1;
     this.onPageChange = options.onPageChange || (() => {});
   }
-
   render() {
     const container = document.getElementById(this.container);
     if (!container) return;
-
     let html = '<div class="pagination" style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem;">';
     html += `<button class="btn btn-sm btn-secondary" ${this.currentPage === 1 ? 'disabled' : ''} onclick="pagination.goToPage(${this.currentPage - 1})">Өмнөх</button>`;
-    
     const pages = this.getPageNumbers();
     pages.forEach(page => {
       if (page === '...') {
@@ -148,12 +141,10 @@ class Pagination {
         html += `<button class="btn btn-sm ${page === this.currentPage ? 'btn-primary' : 'btn-secondary'}" onclick="pagination.goToPage(${page})">${page}</button>`;
       }
     });
-    
     html += `<button class="btn btn-sm btn-secondary" ${this.currentPage === this.totalPages ? 'disabled' : ''} onclick="pagination.goToPage(${this.currentPage + 1})">Дараах</button>`;
     html += '</div>';
     container.innerHTML = html;
   }
-
   getPageNumbers() {
     const pages = [];
     if (this.totalPages <= 7) {
@@ -169,14 +160,12 @@ class Pagination {
     }
     return pages;
   }
-
   goToPage(page) {
     if (page < 1 || page > this.totalPages) return;
     this.currentPage = page;
     this.render();
     this.onPageChange(page);
   }
-
   update(page, totalPages) {
     this.currentPage = page;
     this.totalPages = totalPages;

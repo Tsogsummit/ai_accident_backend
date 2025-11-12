@@ -1,20 +1,16 @@
-// Authentication
 async function handleLogin(event) {
   event.preventDefault();
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   const errorDiv = document.getElementById('error-message');
   const loginBtn = document.getElementById('login-btn');
-
   if (!username || !password) {
     showError('Хэрэглэгчийн нэр болон нууц үг оруулна уу');
     return;
   }
-
   loginBtn.disabled = true;
   loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Нэвтэрч байна...';
   errorDiv.classList.remove('show');
-
   try {
     const result = await api.login(username, password);
     if (result.success) {

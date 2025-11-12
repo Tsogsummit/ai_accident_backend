@@ -1,311 +1,157 @@
-// Cameras Management Script
-let camerasData = [];
-let pagination = null;
-let currentFilters = { page: 1, limit: 50, status: '' };
-let editingCamera = null;
+let cameras = [];
+let currentCameraId = null;
 
-async function initCameras() {
+document.addEventListener('DOMContentLoaded', () => {
   if (!checkAuth()) return;
   initUserInfo();
   initLogoutButton();
-  setActiveNav('cameras');
-
-  pagination = new Pagination('pagination-container', {
-    page: 1, totalPages: 1,
-    onPageChange: (page) => {
-      currentFilters.page = page;
-      loadCameras();
-    }
-  });
-
-  setupFilters();
-  setupModals();
-  await loadCameras();
-}
-
-function setupFilters() {
-  const statusFilter = document.getElementById('status-filter');
-  if (statusFilter) {
-    statusFilter.addEventListener('change', (e) => {
-      currentFilters.status = e.target.value;
-      currentFilters.page = 1;
-      loadCameras();
-    });
-  }
-}
-
-function setupModals() {
-  document.addEventListener('click', (e) => {
-    if (e.target.classList.contains('modal')) {
-      closeModal(e.target.id);
-    }
-  });
-}
+  loadCameras();
+  setInterval(loadCameras, 30000);
+});
 
 async function loadCameras() {
-  showLoading('cameras-table-body');
   try {
-    const params = { ...currentFilters };
-    // Use admin service API instead of camera service ???
-    const result = await api.get('/admin/cameras', params);
-    
+    const result = await api.get('/admin/cameras');
     if (result.success) {
-      camerasData = result.data;
-      renderCamerasTable(camerasData);
-      if (result.pagination) {
-        pagination.update(result.pagination.page, result.pagination.totalPages);
-      }
-    } else {
-      throw new Error(result.error);
+      cameras = result.cameras || result.data || [];
+      renderCameras();
+      updateStats();
     }
   } catch (error) {
-    console.error('Load cameras error:', error);
-    const tbody = document.getElementById('cameras-table-body');
-    if (tbody) {
-      tbody.innerHTML = 
-        '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--danger);">' +
-        '<i class="fas fa-exclamation-circle" style="font-size: 2rem;"></i>' +
-        '<p>Камерын мэдээлэл ачааллахад алдаа гарлаа</p></td></tr>';
-    }
+    console.error('Failed to load cameras:', error);
     showToast('Камер ачааллахад алдаа гарлаа', 'danger');
   }
 }
 
-function renderCamerasTable(cameras) {
-  const tbody = document.getElementById('cameras-table-body');
-  
-  if (!tbody) return;
-  
-  if (!cameras || !cameras.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem;">' +
-      '<i class="fas fa-inbox" style="font-size: 2rem;"></i>' +
-      '<p>Камер олдсонгүй</p></td></tr>';
+function renderCameras() {
+  const container = document.getElementById('camerasContainer');
+  if (cameras.length === 0) {
+    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: var(--secondary);"><i class="fas fa-video" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.3;"></i><p>Камер байхгүй байна</p><button class="btn btn-primary" onclick="openAddModal()">Камер нэмэх</button></div>';
     return;
   }
-
-  tbody.innerHTML = cameras.map(c => `
-    <tr>
-      <td>${c.id}</td>
-      <td>
-        <div style="font-weight: 600;">${escapeHtml(c.name)}</div>
-        <div style="font-size: 0.875rem; color: var(--secondary);">${escapeHtml(c.location)}</div>
-      </td>
-      <td>
-        <a href="${getMapLink(c.latitude, c.longitude)}" target="_blank">
-          ${formatCoordinates(c.latitude, c.longitude)}
-          <i class="fas fa-external-link-alt" style="font-size: 0.75rem; margin-left: 0.25rem;"></i>
-        </a>
-      </td>
-      <td>${c.is_online ? '<span class="badge badge-success">Online</span>' : '<span class="badge badge-secondary">Offline</span>'}</td>
-      <td>${getCameraStatusBadge(c.status)}</td>
-      <td>
-        <div>${c.total_accidents || 0} нийт</div>
-        <div style="font-size: 0.875rem; color: var(--secondary);">${c.accidents_24h || 0} (24ц)</div>
-      </td>
-      <td>${c.last_accident_time ? formatDateTime(c.last_accident_time) : '-'}</td>
-      <td>
-        <div style="display: flex; gap: 0.5rem;">
-          <button class="btn btn-sm btn-primary" onclick="viewCameraDetails(${c.id})" title="Дэлгэрэнгүй">
-            <i class="fas fa-eye"></i>
-          </button>
-          <button class="btn btn-sm btn-warning" onclick="editCamera(${c.id})" title="Засах">
-            <i class="fas fa-edit"></i>
-          </button>
-          <button class="btn btn-sm btn-danger" onclick="deleteCamera(${c.id})" title="Устгах">
-            <i class="fas fa-trash"></i>
-          </button>
+  container.innerHTML = cameras.map(camera => `
+    <div class="camera-card">
+      <div class="camera-preview">
+        ${camera.thumbnailUrl ? `<img src="${camera.thumbnailUrl}" alt="${escapeHtml(camera.name)}">` : `<i class="fas fa-video camera-placeholder"></i>`}
+        <div class="camera-status-badge ${camera.is_online ? 'online' : 'offline'}">${camera.is_online ? 'Online' : 'Offline'}</div>
+      </div>
+      <div class="camera-info">
+        <div class="camera-name">${escapeHtml(camera.name)}</div>
+        <div class="camera-location"><i class="fas fa-map-marker-alt"></i> ${escapeHtml(camera.location)}</div>
+        <div class="camera-stats">
+          <div class="stat-item"><div class="stat-value">${camera.total_accidents || 0}</div><div class="stat-label">Нийт</div></div>
+          <div class="stat-item"><div class="stat-value">${camera.accidents_24h || 0}</div><div class="stat-label">24 цаг</div></div>
+          <div class="stat-item"><div class="stat-value">${camera.status === 'active' ? '✓' : '✗'}</div><div class="stat-label">Статус</div></div>
         </div>
-      </td>
-    </tr>
+        <div class="camera-actions">
+          <button class="btn btn-primary btn-sm" onclick="viewDetails(${camera.id})" style="flex: 1;"><i class="fas fa-eye"></i> Үзэх</button>
+          <button class="btn btn-warning btn-sm" onclick="editCamera(${camera.id})"><i class="fas fa-edit"></i></button>
+          <button class="btn btn-danger btn-sm" onclick="deleteCamera(${camera.id})"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>
+    </div>
   `).join('');
 }
 
-function getCameraStatusBadge(status) {
-  const badges = {
-    'active': '<span class="badge badge-success">Идэвхтэй</span>',
-    'inactive': '<span class="badge badge-secondary">Идэвхгүй</span>',
-    'maintenance': '<span class="badge badge-warning">Засвар</span>',
-  };
-  return badges[status] || '<span class="badge badge-secondary">-</span>';
+function updateStats() {
+  document.getElementById('totalCameras').textContent = cameras.length;
+  document.getElementById('activeCameras').textContent = cameras.filter(c => c.is_online).length;
+  document.getElementById('recordingCameras').textContent = cameras.filter(c => c.status === 'active').length;
+  const totalDetections = cameras.reduce((sum, c) => sum + (parseInt(c.accidents_24h) || 0), 0);
+  document.getElementById('hourlyDetections').textContent = totalDetections;
 }
 
-function openAddCameraModal() {
-  editingCamera = null;
-  const modalTitle = document.getElementById('modal-title');
-  const form = document.getElementById('camera-form');
-  
-  if (modalTitle) modalTitle.textContent = 'Камер нэмэх';
-  if (form) form.reset();
-  
-  const modal = document.getElementById('camera-modal');
-  if (modal) modal.style.display = 'flex';
+function openAddModal() {
+  currentCameraId = null;
+  document.getElementById('modalTitle').textContent = 'Камер нэмэх';
+  document.getElementById('cameraForm').reset();
+  document.getElementById('cameraModal').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('cameraModal').classList.remove('active');
 }
 
 function editCamera(id) {
-  const camera = camerasData.find(c => c.id === id);
+  const camera = cameras.find(c => c.id === id);
   if (!camera) return;
-
-  editingCamera = camera;
-  
-  const modalTitle = document.getElementById('modal-title');
-  if (modalTitle) modalTitle.textContent = 'Камер засах';
-  
-  const fields = {
-    'camera-name': camera.name,
-    'camera-location': camera.location,
-    'camera-latitude': camera.latitude,
-    'camera-longitude': camera.longitude,
-    'camera-ip': camera.ip_address || '',
-    'camera-stream': camera.stream_url || '',
-    'camera-description': camera.description || '',
-    'camera-status': camera.status || 'active'
-  };
-  
-  Object.entries(fields).forEach(([id, value]) => {
-    const field = document.getElementById(id);
-    if (field) field.value = value;
-  });
-  
-  const modal = document.getElementById('camera-modal');
-  if (modal) modal.style.display = 'flex';
+  currentCameraId = id;
+  document.getElementById('modalTitle').textContent = 'Камер засах';
+  document.getElementById('camera-name').value = camera.name;
+  document.getElementById('camera-location').value = camera.location;
+  document.getElementById('camera-latitude').value = camera.latitude;
+  document.getElementById('camera-longitude').value = camera.longitude;
+  document.getElementById('camera-stream').value = camera.stream_url || '';
+  document.getElementById('camera-resolution').value = camera.resolution || '720p';
+  document.getElementById('camera-fps').value = camera.fps || 25;
+  document.getElementById('camera-ip').value = camera.ip_address || '';
+  document.getElementById('camera-status').value = camera.status || 'active';
+  document.getElementById('camera-description').value = camera.description || '';
+  document.getElementById('cameraModal').classList.add('active');
 }
 
-function closeModal(modalId) {
-  const modal = document.getElementById(modalId || 'camera-modal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function saveCameraForm(event) {
+async function handleSubmit(event) {
   event.preventDefault();
-  
-  const formData = {
-    name: document.getElementById('camera-name')?.value.trim(),
-    location: document.getElementById('camera-location')?.value.trim(),
-    latitude: parseFloat(document.getElementById('camera-latitude')?.value),
-    longitude: parseFloat(document.getElementById('camera-longitude')?.value),
-    ip_address: document.getElementById('camera-ip')?.value.trim() || null,
-    stream_url: document.getElementById('camera-stream')?.value.trim() || null,
-    description: document.getElementById('camera-description')?.value.trim() || null,
-    status: document.getElementById('camera-status')?.value || 'active',
-  };
-
-  // Validation
-  if (!formData.name || !formData.location) {
-    showToast('Нэр болон байршил заавал оруулна уу', 'danger');
-    return;
-  }
-
-  if (isNaN(formData.latitude) || isNaN(formData.longitude)) {
-    showToast('Координат буруу байна', 'danger');
-    return;
-  }
-
-  const saveBtn = document.getElementById('save-camera-btn');
-  if (saveBtn) {
-    saveBtn.disabled = true;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Хадгалж байна...';
-  }
-
+  const formData = new FormData(event.target);
+  const data = Object.fromEntries(formData);
+  const saveBtn = document.getElementById('save-btn');
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Хадгалж байна...';
   try {
     let result;
-    if (editingCamera) {
-      result = await api.put(`/admin/cameras/${editingCamera.id}`, formData);
+    if (currentCameraId) {
+      result = await api.put(`/admin/cameras/${currentCameraId}`, data);
     } else {
-      result = await api.post('/admin/cameras', formData);
+      result = await api.post('/admin/cameras', data);
     }
-
     if (result.success) {
-      showToast(editingCamera ? 'Камер шинэчлэгдлээ' : 'Камер нэмэгдлээ', 'success');
-      closeModal('camera-modal');
-      await loadCameras();
+      showToast(result.message || 'Амжилттай хадгалагдлаа', 'success');
+      closeModal();
+      loadCameras();
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
-    console.error('Save camera error:', error);
     showToast('Алдаа гарлаа: ' + error.message, 'danger');
   } finally {
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.innerHTML = '<i class="fas fa-save"></i> Хадгалах';
-    }
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = 'Хадгалах';
   }
 }
 
 async function deleteCamera(id) {
-  const camera = camerasData.find(c => c.id === id);
+  const camera = cameras.find(c => c.id === id);
   if (!camera) return;
-
   if (!confirm(`"${camera.name}" камерыг устгах уу?`)) return;
-
   try {
     const result = await api.delete(`/admin/cameras/${id}`);
     if (result.success) {
-      showToast('Камер устгагдлаа', 'success');
-      await loadCameras();
+      showToast(result.message || 'Камер устгагдлаа', 'success');
+      loadCameras();
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
-    console.error('Delete camera error:', error);
     showToast('Устгахад алдаа гарлаа: ' + error.message, 'danger');
   }
 }
 
-function viewCameraDetails(id) {
-  const camera = camerasData.find(c => c.id === id);
+function viewDetails(id) {
+  const camera = cameras.find(c => c.id === id);
   if (!camera) return;
-
-  const details = `
-ID: ${camera.id}
-Нэр: ${camera.name}
-Байршил: ${camera.location}
-Координат: ${formatCoordinates(camera.latitude, camera.longitude)}
-IP: ${camera.ip_address || '-'}
-Stream URL: ${camera.stream_url || '-'}
-Төлөв: ${camera.status}
-Online: ${camera.is_online ? 'Тийм' : 'Үгүй'}
-Нийт ослууд: ${camera.total_accidents || 0}
-24 цагийн ослууд: ${camera.accidents_24h || 0}
-Сүүлийн осол: ${camera.last_accident_time ? formatDateTime(camera.last_accident_time) : '-'}
-  `.trim();
-
+  const details = `ID: ${camera.id}\nНэр: ${camera.name}\nБайршил: ${camera.location}\nКоординат: ${formatCoordinates(camera.latitude, camera.longitude)}\nIP: ${camera.ip_address || '-'}\nStream URL: ${camera.stream_url || '-'}\nТөлөв: ${camera.status}\nOnline: ${camera.is_online ? 'Тийм' : 'Үгүй'}\nНийт ослууд: ${camera.total_accidents || 0}\n24 цагийн ослууд: ${camera.accidents_24h || 0}\nСүүлийн осол: ${camera.last_accident_time ? formatDateTime(camera.last_accident_time) : '-'}`.trim();
   alert(details);
 }
 
-function exportCameras() {
-  if (!camerasData || !camerasData.length) {
-    showToast('Өгөгдөл байхгүй', 'warning');
-    return;
-  }
-  
-  const exportData = camerasData.map(c => ({
-    'ID': c.id,
-    'Нэр': c.name,
-    'Байршил': c.location,
-    'Өргөрөг': c.latitude,
-    'Уртраг': c.longitude,
-    'Төлөв': c.status,
-    'Online': c.is_online ? 'Тийм' : 'Үгүй',
-    'Нийт ослууд': c.total_accidents || 0
-  }));
-  
-  exportToCSV(exportData, `cameras_${formatDate(new Date())}.csv`);
+function refreshCameras() {
+  loadCameras();
+  showToast('Шинэчлэгдлээ', 'success');
 }
 
-// Initialize on DOM 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initCameras);
-} else if (typeof window.initCameras === 'undefined') {
-  initCameras();
-}
-
-// Export functions to window
-window.initCameras = initCameras;
-window.openAddCameraModal = openAddCameraModal;
+window.openAddModal = openAddModal;
+window.closeModal = closeModal;
 window.editCamera = editCamera;
 window.deleteCamera = deleteCamera;
-window.viewCameraDetails = viewCameraDetails;
-window.closeModal = closeModal;
-window.saveCameraForm = saveCameraForm;
-window.exportCameras = exportCameras;
+window.viewDetails = viewDetails;
+window.handleSubmit = handleSubmit;
+window.refreshCameras = refreshCameras;

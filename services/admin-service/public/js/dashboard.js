@@ -1,4 +1,3 @@
-// Dashboard
 let statsData = null;
 let refreshInterval = null;
 
