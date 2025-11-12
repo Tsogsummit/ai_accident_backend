@@ -1,4 +1,4 @@
-// API Utility - UPDATED VERSION to use microservices
+// API client for Admin Service
 const API_BASE_URL = window.location.origin;
 const USER_SERVICE_URL = window.location.protocol + '//' + window.location.hostname + ':3001';
 
@@ -85,9 +85,7 @@ class API {
     return this.request(endpoint, { method: 'DELETE' });
   }
 
-  // ==========================================
-  // AUTH
-  // ==========================================
+  // Authentication for Admins
 
   async login(username, password) {
     const data = await this.post('/admin/login', { username, password });
@@ -100,17 +98,13 @@ class API {
     window.location.href = '/login.html';
   }
 
-  // ==========================================
-  // DASHBOARD
-  // ==========================================
+  // Dashboard
 
   async getDashboardStats() { 
     return this.get('/admin/dashboard/stats'); 
   }
 
-  // ==========================================
-  // ACCIDENTS
-  // ==========================================
+  // Accidents
 
   async getAccidents(params = {}) { 
     return this.get('/admin/accidents', params); 
@@ -120,9 +114,7 @@ class API {
     return this.put(`/admin/accidents/${id}/status`, { status });
   }
 
-  // ==========================================
-  // USERS - USING USER SERVICE
-  // ==========================================
+  // Users (user-service integration with fallback)
 
   async getUsers(params = {}) { 
     try {
@@ -191,10 +183,6 @@ class API {
       return this.delete(`/admin/users/${id}`);
     }
   }
-
-  // ==========================================
-  // HELPERS
-  // ==========================================
 
   isAuthenticated() { 
     return !!this.token; 

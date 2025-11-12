@@ -1,4 +1,4 @@
-// Accidents Logic
+// Accident Management Script
 let accidentsData = [];
 let pagination = null;
 let currentFilters = { page: 1, limit: 50, status: '', severity: '', source: '' };
@@ -79,7 +79,7 @@ function renderAccidentsTable(accidents) {
 function viewAccidentDetails(id) {
   const a = accidentsData.find(x => x.id === id);
   if (!a) return;
-  // Simple modal implementation
+  
   alert(`Осол #${a.id}\nОгноо: ${formatDateTime(a.accident_time)}\nБайршил: ${formatCoordinates(a.latitude, a.longitude)}\nТөлөв: ${a.status}`);
 }
 

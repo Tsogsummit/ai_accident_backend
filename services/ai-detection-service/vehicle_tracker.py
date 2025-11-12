@@ -60,7 +60,7 @@ class VehicleTracker:
         detections = []
         
         for i, (box, conf, class_id) in enumerate(zip(boxes, confidences, class_ids)):
-            class_name = class_names[int(class_id)]
+            class_name = class_names[i]  # ✅ Use loop index instead
             
             # Filter for vehicles only
             if class_name not in self.VEHICLE_CLASSES:

@@ -1,4 +1,4 @@
-// Dashboard Logic
+// Dashboard
 let statsData = null;
 let refreshInterval = null;
 

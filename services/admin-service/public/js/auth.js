@@ -1,4 +1,4 @@
-// Authentication Functions
+// Authentication
 async function handleLogin(event) {
   event.preventDefault();
   const username = document.getElementById('username').value.trim();

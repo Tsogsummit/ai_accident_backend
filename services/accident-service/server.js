@@ -1,4 +1,5 @@
-// services/accident-service/server.js - FIXED VERSION WITH BETTER ERROR HANDLING
+// Accident service
+
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -24,7 +25,7 @@ const PORT = process.env.PORT || 3002;
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// ✅ User-based rate limiting
+// User-based rate limiting
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -39,7 +40,7 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// PostgreSQL with better error handling
+// PostgreSQL database connection pool
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -59,7 +60,7 @@ pool.on('connect', () => {
   console.log('✅ PostgreSQL connected');
 });
 
-// Redis with better error handling
+// Redis client for caching and location storage
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -109,7 +110,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Validation helper
+// Validation error handling middleware
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -155,11 +156,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// ==========================================
 // ACCIDENTS API
-// ==========================================
 
-// ✅ GET /accidents - with accident_time column
 app.get('/accidents', 
   authenticateToken,
   [
@@ -176,7 +174,7 @@ app.get('/accidents',
       // Cache key
       const cacheKey = `accidents:${status || 'all'}:${severity || 'all'}:${limit}:${offset}`;
       
-      // Check cache (but don't fail if Redis is down)
+      // Check cache
       try {
         const cached = await redis.get(cacheKey);
         if (cached) {
@@ -190,7 +188,6 @@ app.get('/accidents',
         console.warn('Redis cache read failed:', redisErr.message);
       }
 
-      // ✅ Column name corrected to accident_time
       let queryText = `
         SELECT 
           a.*,
@@ -221,7 +218,6 @@ app.get('/accidents',
         params.push(severity);
       }
 
-      // ✅ Column name corrected
       queryText += `
         GROUP BY a.id, u.name, u.phone, c.name
         ORDER BY a.accident_time DESC
@@ -232,7 +228,7 @@ app.get('/accidents',
 
       const result = await pool.query(queryText, params);
 
-      // Cache result (5 minutes) - non-blocking
+      // Store in cache
       try {
         await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
       } catch (redisErr) {
@@ -257,7 +253,6 @@ app.get('/accidents',
   }
 );
 
-// ✅ POST /accidents - better validation and error handling
 app.post('/accidents',
   authenticateToken,
   [
@@ -286,7 +281,6 @@ app.post('/accidents',
 
       await client.query('BEGIN');
 
-      // ✅ accident_time column used
       const accidentResult = await client.query(`
         INSERT INTO accidents (
           user_id, latitude, longitude, description, 
@@ -306,7 +300,7 @@ app.post('/accidents',
 
       await client.query('COMMIT');
 
-      // Clear cache (non-blocking)
+      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) {
@@ -316,7 +310,7 @@ app.post('/accidents',
         console.warn('Cache clear failed:', redisErr.message);
       }
 
-      // Notify nearby users (async, don't wait)
+      // Notify nearby users
       notifyNearbyUsers(accident, 5000).catch(err => 
         console.error('Notification error:', err)
       );
@@ -341,7 +335,6 @@ app.post('/accidents',
   }
 );
 
-// GET /accidents/:id - With validation
 app.get('/accidents/:id',
   authenticateToken,
   async (req, res) => {
@@ -395,7 +388,6 @@ app.get('/accidents/:id',
   }
 );
 
-// PUT /accidents/:id/status - With validation
 app.put('/accidents/:id/status',
   authenticateToken,
   [
@@ -421,7 +413,7 @@ app.put('/accidents/:id/status',
         });
       }
 
-      // Clear cache (non-blocking)
+      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) {
@@ -447,9 +439,7 @@ app.put('/accidents/:id/status',
   }
 );
 
-// ==========================================
-// HELPER FUNCTIONS
-// ==========================================
+// Notify nearby users about new accident
 
 async function notifyNearbyUsers(accident, radiusMeters) {
   try {
@@ -503,7 +493,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
 
 // Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Earth radius in meters
+  const R = 6371e3; // Earth radius in meter
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -516,10 +506,6 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
   return R * c;
 }
-
-// ==========================================
-// HEALTH CHECK - IMPROVED
-// ==========================================
 
 app.get('/health', async (req, res) => {
   const health = {
@@ -603,12 +589,12 @@ process.on('SIGINT', async () => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚗 Accident Service running on port ${PORT}`);
-  console.log(`🔌 Socket.IO ready for WebSocket connections`);
-  console.log(`🔒 Security: Helmet enabled`);
-  console.log(`⚡ Rate limiting: User-based (100 req/min)`);
-  console.log(`📊 Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
-  console.log(`💾 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+  console.log(`Accident Service running on port ${PORT}`);
+  console.log(`Socket.IO ready for WebSocket connections`);
+  console.log(`Security: Helmet enabled`);
+  console.log(`Rate limiting: User-based (100 req/min)`);
+  console.log(`Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+  console.log(`Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 });
 
 module.exports = app;

@@ -1,4 +1,4 @@
-// services/admin-service/public/js/cameras.js - CORRECTED VERSION
+// Cameras Management Script
 let camerasData = [];
 let pagination = null;
 let currentFilters = { page: 1, limit: 50, status: '' };
@@ -35,7 +35,6 @@ function setupFilters() {
 }
 
 function setupModals() {
-  // Close modals on click outside
   document.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal')) {
       closeModal(e.target.id);
@@ -47,7 +46,7 @@ async function loadCameras() {
   showLoading('cameras-table-body');
   try {
     const params = { ...currentFilters };
-    // Use admin service API instead of camera service
+    // Use admin service API instead of camera service ???
     const result = await api.get('/admin/cameras', params);
     
     if (result.success) {
@@ -151,7 +150,6 @@ function editCamera(id) {
   const modalTitle = document.getElementById('modal-title');
   if (modalTitle) modalTitle.textContent = 'Камер засах';
   
-  // Fill form fields
   const fields = {
     'camera-name': camera.name,
     'camera-location': camera.location,
@@ -295,7 +293,7 @@ function exportCameras() {
   exportToCSV(exportData, `cameras_${formatDate(new Date())}.csv`);
 }
 
-// Initialize on DOM load if not already initialized
+// Initialize on DOM 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initCameras);
 } else if (typeof window.initCameras === 'undefined') {

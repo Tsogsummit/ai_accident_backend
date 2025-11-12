@@ -1,4 +1,4 @@
-// services/admin-service/server.js - FIXED VERSION WITH BETTER HEALTH CHECKS
+// services/admin-service/server.js - FIXED VERSION WITH CAMERA SERVICE PROXY
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -60,6 +60,7 @@ redis.on('connect', () => console.log('✅ Redis connected'));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
 const BCRYPT_ROUNDS = 12;
+const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http://camera-service:3008';
 
 // ==========================================
 // MIDDLEWARE
@@ -437,9 +438,6 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
   }
 });
 
-// User CRUD operations continue...
-// (Keeping the rest of the user management endpoints as they were)
-
 app.post('/admin/users', authenticateAdmin, async (req, res) => {
   const client = await pool.connect();
   
@@ -576,177 +574,81 @@ app.delete('/admin/users/:id', authenticateAdmin, async (req, res) => {
 });
 
 // ==========================================
-// CAMERA MANAGEMENT
+// CAMERA MANAGEMENT - PROXY TO CAMERA SERVICE
 // ==========================================
 
-app.get('/admin/cameras', authenticateAdmin, async (req, res) => {
+// Helper function to proxy camera requests
+async function proxyCameraRequest(req, res, method, path, body = null) {
   try {
-    const { page = 1, limit = 50, status } = req.query;
-    const offset = (page - 1) * limit;
+    const url = `${CAMERA_SERVICE_URL}${path}`;
+    const config = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000,
+    };
 
-    let query = `
-      SELECT c.*, 
-             COUNT(DISTINCT a.id) as total_accidents,
-             COUNT(DISTINCT CASE WHEN a.accident_time >= NOW() - INTERVAL '24 hours' 
-                   THEN a.id END) as accidents_24h,
-             MAX(a.accident_time) as last_accident_time
-      FROM cameras c
-      LEFT JOIN accidents a ON c.id = a.camera_id
-      WHERE 1=1
-    `;
-
-    const params = [];
-    let paramIndex = 1;
-
-    if (status) {
-      query += ` AND c.status = $${paramIndex++}`;
-      params.push(status);
+    if (body) {
+      config.data = body;
     }
 
-    query += `
-      GROUP BY c.id
-      ORDER BY c.created_at DESC
-      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
-    `;
-    params.push(parseInt(limit), parseInt(offset));
-
-    const [cameras, totalCount] = await Promise.all([
-      pool.query(query, params),
-      pool.query('SELECT COUNT(*) FROM cameras')
-    ]);
-
-    res.json({
-      success: true,
-      data: cameras.rows,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: parseInt(totalCount.rows[0].count),
-        totalPages: Math.ceil(parseInt(totalCount.rows[0].count) / parseInt(limit))
-      }
-    });
+    const response = await axios(url, config);
+    res.status(response.status).json(response.data);
 
   } catch (error) {
-    console.error('Get cameras error:', error);
-    res.status(500).json({ success: false, error: 'Камер авахад алдаа гарлаа' });
+    console.error(`Camera service proxy error:`, error.message);
+    
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else if (error.code === 'ECONNREFUSED') {
+      res.status(503).json({ 
+        success: false, 
+        error: 'Камер сервис ажиллахгүй байна' 
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        error: 'Камер сервистэй холбогдоход алдаа гарлаа' 
+      });
+    }
   }
+}
+
+// Camera CRUD endpoints - proxy to camera service
+app.get('/admin/cameras', authenticateAdmin, async (req, res) => {
+  const queryString = new URLSearchParams(req.query).toString();
+  const path = queryString ? `/cameras?${queryString}` : '/cameras';
+  await proxyCameraRequest(req, res, 'GET', path);
+});
+
+app.get('/admin/cameras/:id', authenticateAdmin, async (req, res) => {
+  await proxyCameraRequest(req, res, 'GET', `/cameras/${req.params.id}`);
 });
 
 app.post('/admin/cameras', authenticateAdmin, async (req, res) => {
-  try {
-    const { name, location, latitude, longitude, ip_address, stream_url, description } = req.body;
-
-    if (!name || !location || !latitude || !longitude) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Нэр, байршил, координат шаардлагатай' 
-      });
-    }
-
-    const result = await pool.query(`
-      INSERT INTO cameras (name, location, latitude, longitude, ip_address, 
-                          stream_url, description, status, is_online)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', false)
-      RETURNING *
-    `, [name, location, latitude, longitude, ip_address, stream_url, description]);
-
-    res.status(201).json({
-      success: true,
-      message: 'Камер амжилттай нэмэгдлээ',
-      data: result.rows[0]
-    });
-
-  } catch (error) {
-    console.error('Create camera error:', error);
-    res.status(500).json({ success: false, error: 'Камер нэмэхэд алдаа гарлаа' });
-  }
+  await proxyCameraRequest(req, res, 'POST', '/cameras', req.body);
 });
 
 app.put('/admin/cameras/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, location, latitude, longitude, ip_address, stream_url, description, status } = req.body;
-
-    const updates = [];
-    const values = [];
-    let paramIndex = 1;
-
-    if (name) {
-      updates.push(`name = $${paramIndex++}`);
-      values.push(name);
-    }
-    if (location) {
-      updates.push(`location = $${paramIndex++}`);
-      values.push(location);
-    }
-    if (latitude) {
-      updates.push(`latitude = $${paramIndex++}`);
-      values.push(latitude);
-    }
-    if (longitude) {
-      updates.push(`longitude = $${paramIndex++}`);
-      values.push(longitude);
-    }
-    if (ip_address !== undefined) {
-      updates.push(`ip_address = $${paramIndex++}`);
-      values.push(ip_address);
-    }
-    if (stream_url) {
-      updates.push(`stream_url = $${paramIndex++}`);
-      values.push(stream_url);
-    }
-    if (description !== undefined) {
-      updates.push(`description = $${paramIndex++}`);
-      values.push(description);
-    }
-    if (status) {
-      updates.push(`status = $${paramIndex++}`);
-      values.push(status);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ success: false, error: 'Өөрчлөх мэдээлэл байхгүй' });
-    }
-
-    updates.push(`updated_at = NOW()`);
-    values.push(id);
-
-    const query = `UPDATE cameras SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
-
-    const result = await pool.query(query, values);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Камер олдсонгүй' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Камер шинэчлэгдлээ',
-      data: result.rows[0]
-    });
-
-  } catch (error) {
-    console.error('Update camera error:', error);
-    res.status(500).json({ success: false, error: 'Шинэчлэхэд алдаа гарлаа' });
-  }
+  await proxyCameraRequest(req, res, 'PUT', `/cameras/${req.params.id}`, req.body);
 });
 
 app.delete('/admin/cameras/:id', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
+  await proxyCameraRequest(req, res, 'DELETE', `/cameras/${req.params.id}`);
+});
 
-    const result = await pool.query('DELETE FROM cameras WHERE id = $1 RETURNING id', [id]);
+// Camera control endpoints
+app.post('/admin/cameras/:id/start', authenticateAdmin, async (req, res) => {
+  await proxyCameraRequest(req, res, 'POST', `/cameras/${req.params.id}/start`);
+});
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Камер олдсонгүй' });
-    }
+app.post('/admin/cameras/:id/stop', authenticateAdmin, async (req, res) => {
+  await proxyCameraRequest(req, res, 'POST', `/cameras/${req.params.id}/stop`);
+});
 
-    res.json({ success: true, message: 'Камер устгагдлаа' });
-
-  } catch (error) {
-    console.error('Delete camera error:', error);
-    res.status(500).json({ success: false, error: 'Устгахад алдаа гарлаа' });
-  }
+app.post('/admin/cameras/:id/restart', authenticateAdmin, async (req, res) => {
+  await proxyCameraRequest(req, res, 'POST', `/cameras/${req.params.id}/restart`);
 });
 
 // ==========================================
@@ -763,7 +665,7 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005' },
     { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http://map-service:3006' },
     { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http://report-service:3007' },
-    { name: 'Camera Service', url: process.env.CAMERA_SERVICE_URL || `http://${isDev ? 'localhost' : 'camera-service'}:3008` },
+    { name: 'Camera Service', url: CAMERA_SERVICE_URL },
   ];
 
   const healthChecks = await Promise.all(
@@ -914,6 +816,7 @@ app.listen(PORT, () => {
   console.log(`🔒 JWT Secret: ${JWT_SECRET.substring(0, 10)}...`);
   console.log(`📊 Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
   console.log(`💾 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+  console.log(`📹 Camera Service: ${CAMERA_SERVICE_URL}`);
 });
 
 module.exports = app;
