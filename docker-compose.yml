@@ -449,16 +449,13 @@ services:
       - camera_temp:/tmp
       - ${GCP_KEY_FILE:-./gcp-key.json}:/app/gcp-key.json:ro
     networks:
-      - accident_network
+      accident_network:
+        aliases:
+          - camera-service
     depends_on:
       postgres:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3008/ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+     
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -476,6 +473,7 @@ services:
     environment:
       PORT: 3009
       NODE_ENV: ${NODE_ENV:-development}
+      CAMERA_SERVICE_URL: http://camera-service:3008
       
       # Database
       DB_HOST: postgres
