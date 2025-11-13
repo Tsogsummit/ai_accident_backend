@@ -249,10 +249,19 @@ app.post('/auth/register', async (req, res) => {
 
     await client.query('BEGIN');
 
-    const existingUser = await client.query(
-      'SELECT id FROM users WHERE phone = $1 OR ($2 IS NOT NULL AND email = $2)',
-      [phone, email]
-    );
+    // ЗАСВАРЛАСАН: email байгаа эсэхээс хамааруулан query бичнэ
+    let existingUser;
+    if (email) {
+      existingUser = await client.query(
+        'SELECT id FROM users WHERE phone = $1 OR email = $2',
+        [phone, email]
+      );
+    } else {
+      existingUser = await client.query(
+        'SELECT id FROM users WHERE phone = $1',
+        [phone]
+      );
+    }
 
     if (existingUser.rows.length > 0) {
       await client.query('ROLLBACK');
@@ -264,11 +273,12 @@ app.post('/auth/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
+    // ЗАСВАРЛАСАН: email-д тодорхой төрөл зааж өгнө
     const result = await client.query(
       `INSERT INTO users (phone, email, name, password_hash, role, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1, $2::text, $3, $4, $5, $6)
        RETURNING id, phone, email, name, role, created_at`,
-      [phone, email, name, passwordHash, 'user', 'active']
+      [phone, email || null, name, passwordHash, 'user', 'active']
     );
 
     const user = result.rows[0];
@@ -1005,7 +1015,8 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT,"0.0.0.0", () => {
+  console.log('0.0.0.0 --- -- - -- - - -- -- - -- -- -- - -');
   console.log(`👤 User Service running on port ${PORT}`);
   console.log(`🔒 Bcrypt rounds: ${BCRYPT_ROUNDS}`);
   console.log(`🔐 JWT configured: ${!!JWT_SECRET}`);
