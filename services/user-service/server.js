@@ -335,13 +335,13 @@ app.post('/auth/login', async (req, res) => {
       });
     }
 
-    const attemptCheck = checkLoginAttempts(phone);
-    if (!attemptCheck.allowed) {
-      return res.status(429).json({
-        success: false,
-        error: attemptCheck.message
-      });
-    }
+    // const attemptCheck = checkLoginAttempts(phone);
+    // if (!attemptCheck.allowed) {
+    //   return res.status(429).json({
+    //     success: false,
+    //     error: attemptCheck.message
+    //   });
+    // }
 
     const result = await pool.query(
       'SELECT * FROM users WHERE phone = $1',
@@ -389,7 +389,7 @@ app.post('/auth/login', async (req, res) => {
       [user.id]
     ).catch(err => console.error('Failed to update last login:', err));
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Амжилттай нэвтэрлээ',
       user: {

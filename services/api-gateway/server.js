@@ -109,7 +109,7 @@ const authLimiter = createRateLimiter(
 );
 
 // Apply rate limiters
-app.use('/api/', generalLimiter);
+// app.use('/api/', generalLimiter);
 
 // JWT Authentication middleware
 const authenticateToken = (req, res, next) => {
