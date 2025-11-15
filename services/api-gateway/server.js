@@ -1,4 +1,4 @@
-// services/api-gateway/server.js - FIXED VERSION
+// services/api-gateway/server.js - FIXED VERSION WITH DEBUGGING
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -9,16 +9,13 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ FIXED: Environment validation
-const JWT_SECRET = process.env.JWT_SECRET;
+// ✅ Environment validation
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 if (!JWT_SECRET || JWT_SECRET === 'your-secret-key') {
-  console.error('❌ CRITICAL: JWT_SECRET not properly configured!');
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
+  console.warn('⚠️ WARNING: Using default JWT_SECRET! Set JWT_SECRET in production!');
 }
 
-// ✅ FIXED: Production-ready security headers
+// ✅ Security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -35,20 +32,22 @@ app.use(helmet({
   }
 }));
 
-// ✅ FIXED: Production-ready CORS configuration
+// ✅ CORS configuration
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000'];
+  : ['http://localhost:3000', '*'];
+
+console.log('📡 CORS allowed origins:', allowedOrigins);
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) {
       return callback(null, true);
     }
     
     // Check if origin is allowed
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.warn(`❌ CORS blocked origin: ${origin}`);
@@ -59,7 +58,7 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 };
 
 app.use(cors(corsOptions));
@@ -68,7 +67,25 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// ✅ FIXED: Advanced rate limiting with different tiers
+// ✅ Service endpoints
+const SERVICES = {
+  user: process.env.USER_SERVICE_URL || 'http://localhost:3001',
+  accident: process.env.ACCIDENT_SERVICE_URL || 'http://localhost:3002',
+  video: process.env.VIDEO_SERVICE_URL || 'http://localhost:3003',
+  ai: process.env.AI_SERVICE_URL || 'http://localhost:3004',
+  notification: process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005',
+  map: process.env.MAP_SERVICE_URL || 'http://localhost:3006',
+  report: process.env.REPORT_SERVICE_URL || 'http://localhost:3007',
+  camera: process.env.CAMERA_SERVICE_URL || 'http://localhost:3008',
+  admin: process.env.ADMIN_SERVICE_URL || 'http://localhost:3009'
+};
+
+console.log('🔌 Service URLs:');
+Object.entries(SERVICES).forEach(([name, url]) => {
+  console.log(`  ${name}: ${url}`);
+});
+
+// ✅ Rate limiting with different tiers
 const createRateLimiter = (windowMs, max, message) => {
   return rateLimit({
     windowMs,
@@ -77,11 +94,9 @@ const createRateLimiter = (windowMs, max, message) => {
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => {
-      // Skip rate limiting for health checks
-      return req.path === '/health';
+      return req.path === '/health' || req.path === '/';
     },
     keyGenerator: (req) => {
-      // Use JWT userId if available, otherwise IP
       return req.user?.userId?.toString() || req.ip;
     }
   });
@@ -90,26 +105,26 @@ const createRateLimiter = (windowMs, max, message) => {
 // General API rate limit
 const generalLimiter = createRateLimiter(
   60 * 1000, // 1 minute
-  100, // 100 requests
+  100,
   'Хэт олон хүсэлт илгээлээ, түр хүлээнэ үү'
 );
 
-// Upload rate limit (stricter)
+// Upload rate limit
 const uploadLimiter = createRateLimiter(
   24 * 60 * 60 * 1000, // 24 hours
-  10, // 10 uploads
+  10,
   'Өдөрт зөвшөөрөгдөх бичлэгийн тоо хэтэрлээ'
 );
 
-// Auth rate limit (strictest)
+// ✅ RELAXED Auth rate limit for debugging
 const authLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  5, // 5 attempts
+  100, // ✅ INCREASED from 5 to 100 for testing
   'Хэт олон нэвтрэх оролдлого. 15 минутын дараа дахин оролдоно уу'
 );
 
 // Apply rate limiters
-// app.use('/api/', generalLimiter);
+app.use('/api/', generalLimiter);
 
 // JWT Authentication middleware
 const authenticateToken = (req, res, next) => {
@@ -149,34 +164,19 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// Service endpoints
-const SERVICES = {
-  user: process.env.USER_SERVICE_URL || 'http://localhost:3001',
-  accident: process.env.ACCIDENT_SERVICE_URL || 'http://localhost:3002',
-  video: process.env.VIDEO_SERVICE_URL || 'http://localhost:3003',
-  ai: process.env.AI_SERVICE_URL || 'http://localhost:3004',
-  notification: process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005',
-  map: process.env.MAP_SERVICE_URL || 'http://localhost:3006',
-  report: process.env.REPORT_SERVICE_URL || 'http://localhost:3007',
-  camera: process.env.CAMERA_SERVICE_URL || 'http://localhost:3008',
-  admin: process.env.ADMIN_SERVICE_URL || 'http://localhost:3009'
-};
-
-// Logging middleware
+// ✅ Enhanced logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+  
+  console.log(`[${requestId}] 📥 ${req.method} ${req.path} from ${req.ip}`);
+  
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log({
-      timestamp: new Date().toISOString(),
-      method: req.method,
-      path: req.path,
-      status: res.statusCode,
-      duration: `${duration}ms`,
-      ip: req.ip,
-      userId: req.user?.userId
-    });
+    const statusEmoji = res.statusCode < 400 ? '✅' : '❌';
+    console.log(`[${requestId}] ${statusEmoji} ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
   });
+
   next();
 });
 
@@ -187,8 +187,29 @@ app.get('/health', (req, res) => {
     service: 'api-gateway',
     timestamp: new Date().toISOString(),
     services: Object.keys(SERVICES),
-    environment: process.env.NODE_ENV,
+    environment: process.env.NODE_ENV || 'development',
     uptime: process.uptime()
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'API Gateway',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      auth: '/api/auth/*',
+      users: '/api/users/*',
+      accidents: '/api/accidents/*',
+      videos: '/api/videos/*',
+      ai: '/api/ai/*',
+      notifications: '/api/notifications/*',
+      maps: '/api/maps/*',
+      reports: '/api/reports/*',
+      cameras: '/api/cameras/*'
+    },
+    services: SERVICES
   });
 });
 
@@ -196,15 +217,44 @@ app.get('/health', (req, res) => {
 // PUBLIC ROUTES - No authentication needed
 // ==========================================
 
+// ✅ Enhanced auth proxy with better error handling and timeout
 app.use('/api/auth', authLimiter, createProxyMiddleware({
   target: SERVICES.user,
   changeOrigin: true,
   pathRewrite: { '^/api/auth': '/auth' },
+  timeout: 30000, // ✅ 30 second timeout
+  proxyTimeout: 30000,
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`🔄 Proxying ${req.method} ${req.path} -> ${SERVICES.user}/auth${req.path.replace('/api/auth', '')}`);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log(`✅ Proxy response: ${proxyRes.statusCode} from ${req.path}`);
+  },
   onError: (err, req, res) => {
-    console.error('Proxy error:', err);
+    console.error('❌ Proxy error:', err.message);
+    console.error('   Target:', SERVICES.user);
+    console.error('   Path:', req.path);
+    
+    if (err.code === 'ECONNREFUSED') {
+      return res.status(503).json({ 
+        success: false,
+        error: 'User service холбогдохгүй байна. Та дараа дахин оролдоно уу.',
+        details: `Cannot connect to ${SERVICES.user}`
+      });
+    }
+    
+    if (err.code === 'ETIMEDOUT' || err.message.includes('timeout')) {
+      return res.status(504).json({
+        success: false,
+        error: 'Хүсэлт удаж байна. Дахин оролдоно уу.',
+        details: 'Gateway timeout'
+      });
+    }
+    
     res.status(503).json({ 
       success: false,
-      error: 'Service unavailable' 
+      error: 'Service unavailable',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 }));
@@ -216,45 +266,82 @@ app.use('/api/auth', authLimiter, createProxyMiddleware({
 app.use('/api/users', authenticateToken, createProxyMiddleware({
   target: SERVICES.user,
   changeOrigin: true,
-  pathRewrite: { '^/api/users': '/users' }
+  pathRewrite: { '^/api/users': '/users' },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('User service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
 app.use('/api/accidents', authenticateToken, createProxyMiddleware({
   target: SERVICES.accident,
   changeOrigin: true,
-  pathRewrite: { '^/api/accidents': '/accidents' }
+  pathRewrite: { '^/api/accidents': '/accidents' },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('Accident service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
 app.use('/api/videos', authenticateToken, uploadLimiter, createProxyMiddleware({
   target: SERVICES.video,
   changeOrigin: true,
   pathRewrite: { '^/api/videos': '/videos' },
-  timeout: 120000 // 2 minutes for video uploads
+  timeout: 120000, // 2 minutes for video uploads
+  onError: (err, req, res) => {
+    console.error('Video service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
+// ✅ AI service proxy
 app.use('/api/ai', authenticateToken, createProxyMiddleware({
   target: SERVICES.ai,
   changeOrigin: true,
-  pathRewrite: { '^/api/ai': '/ai' },
-  timeout: 60000 // 1 minute
+  pathRewrite: { '^/api/ai': '' }, // ✅ No prefix removal, direct path
+  timeout: 60000, // 1 minute
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`🤖 AI Proxy: ${req.method} ${req.path} -> ${SERVICES.ai}${req.path.replace('/api/ai', '')}`);
+  },
+  onError: (err, req, res) => {
+    console.error('AI service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'AI service unavailable' });
+  }
 }));
 
 app.use('/api/notifications', authenticateToken, createProxyMiddleware({
   target: SERVICES.notification,
   changeOrigin: true,
-  pathRewrite: { '^/api/notifications': '/notifications' }
+  pathRewrite: { '^/api/notifications': '/notifications' },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('Notification service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
 app.use('/api/maps', authenticateToken, createProxyMiddleware({
   target: SERVICES.map,
   changeOrigin: true,
-  pathRewrite: { '^/api/maps': '/maps' }
+  pathRewrite: { '^/api/maps': '/maps' },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('Map service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
 app.use('/api/reports', authenticateToken, createProxyMiddleware({
   target: SERVICES.report,
   changeOrigin: true,
-  pathRewrite: { '^/api/reports': '/reports' }
+  pathRewrite: { '^/api/reports': '/reports' },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('Report service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
 // ==========================================
@@ -264,7 +351,12 @@ app.use('/api/reports', authenticateToken, createProxyMiddleware({
 app.use('/api/cameras', authenticateToken, requireAdmin, createProxyMiddleware({
   target: SERVICES.camera,
   changeOrigin: true,
-  pathRewrite: { '^/api/cameras': '/cameras' }
+  pathRewrite: { '^/api/cameras': '/cameras' },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('Camera service proxy error:', err.message);
+    res.status(503).json({ success: false, error: 'Service unavailable' });
+  }
 }));
 
 // ==========================================
@@ -301,7 +393,19 @@ app.use((req, res) => {
     success: false,
     error: 'Endpoint олдсонгүй',
     path: req.path,
-    method: req.method
+    method: req.method,
+    availableEndpoints: [
+      '/health',
+      '/api/auth/*',
+      '/api/users/*',
+      '/api/accidents/*',
+      '/api/videos/*',
+      '/api/ai/*',
+      '/api/notifications/*',
+      '/api/maps/*',
+      '/api/reports/*',
+      '/api/cameras/*'
+    ]
   });
 });
 
@@ -317,11 +421,17 @@ process.on('SIGINT', () => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 API Gateway запущен на порту ${PORT}`);
-  console.log(`📡 Подключенные сервисы:`, Object.keys(SERVICES));
+  console.log('═══════════════════════════════════════════════════');
+  console.log(`🚀 API Gateway running on port ${PORT}`);
+  console.log('═══════════════════════════════════════════════════');
+  console.log(`📡 Connected services:`, Object.keys(SERVICES));
   console.log(`🔒 CORS allowed origins:`, allowedOrigins);
-  console.log(`🌍 Environment:`, process.env.NODE_ENV);
+  console.log(`🌍 Environment:`, process.env.NODE_ENV || 'development');
   console.log(`⚡ Rate limiting: Enabled`);
+  console.log(`   - General: 100 req/min`);
+  console.log(`   - Auth: 100 req/15min (relaxed for testing)`);
+  console.log(`   - Upload: 10 req/day`);
+  console.log('═══════════════════════════════════════════════════');
 });
 
 module.exports = app;

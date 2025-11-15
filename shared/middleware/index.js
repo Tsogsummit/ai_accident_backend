@@ -202,27 +202,31 @@ function requestLogger(req, res, next) {
  * CORS middleware
  */
 function corsMiddleware(req, res, next) {
-  const allowedOrigins = config.cors.origin === '*' 
-    ? [req.headers.origin] 
-    : config.cors.origin;
-
   const origin = req.headers.origin;
-  
-  if (config.cors.origin === '*' || allowedOrigins.includes(origin)) {
+
+  // Set allowed origin
+  if (config.cors.origin === '*' || config.cors.origin.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || '*');
   }
 
+  // Common CORS headers
   res.setHeader('Access-Control-Allow-Methods', config.cors.methods.join(','));
   res.setHeader('Access-Control-Allow-Headers', config.cors.allowedHeaders.join(','));
   res.setHeader('Access-Control-Allow-Credentials', config.cors.credentials.toString());
 
-  // Handle preflight
+  // IMPORTANT: Required for browsers
+  res.setHeader('Vary', 'Origin');
+
+  // Handle preflight (OPTIONS)
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    // Must include headers then respond
+    return res.status(204).end();
   }
 
+  // Continue to next middleware (proxy)
   next();
 }
+
 
 /**
  * Rate limiting check middleware (Redis-тай ажиллах)
