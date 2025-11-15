@@ -1,172 +1,242 @@
-// services/video-service/server.js
+// services/video-service/server.js - БҮРЭН ЗАСВАРЛАСАН
 const express = require('express');
 const multer = require('multer');
 const { Pool } = require('pg');
-const { Storage } = require('@google-cloud/storage');
-const { PubSub } = require('@google-cloud/pubsub');
 const path = require('path');
 const fs = require('fs').promises;
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
 
+// ============================================
+// MIDDLEWARE
+// ============================================
+
+app.use(cors());
 app.use(express.json());
 
-// PostgreSQL
+// ============================================
+// DATABASE CONNECTION
+// ============================================
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'accident_db',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres'
+  password: process.env.DB_PASSWORD || 'postgres',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
-// Google Cloud Storage
-const storage = new Storage({
-  projectId: process.env.GCP_PROJECT_ID,
-  keyFilename: process.env.GCP_KEY_FILE
+// Test database connection
+pool.on('connect', () => {
+  console.log('✅ PostgreSQL холбогдлоо');
 });
 
-const bucketName = process.env.GCS_BUCKET_NAME || 'accident-videos';
-const bucket = storage.bucket(bucketName);
-
-// Google Cloud Pub/Sub (AI боловсруулалтын queue)
-const pubsub = new PubSub({
-  projectId: process.env.GCP_PROJECT_ID,
-  keyFilename: process.env.GCP_KEY_FILE
+pool.on('error', (err) => {
+  console.error('❌ PostgreSQL алдаа:', err);
 });
 
-const topicName = 'video-processing';
-const topic = pubsub.topic(topicName);
+// ============================================
+// MULTER SETUP - VIDEO UPLOAD
+// ============================================
 
-// Multer setup - бичлэг түр хадгалах
+const storage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    try {
+      await fs.mkdir(uploadDir, { recursive: true });
+      cb(null, uploadDir);
+    } catch (error) {
+      cb(error, uploadDir);
+    }
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
+
 const upload = multer({
-  dest: 'uploads/',
+  storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB хязгаар
+    fileSize: 100 * 1024 * 1024, // 100MB
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo'];
+    const allowedTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Зөвхөн video файл зөвшөөрөгдөнө (mp4, mov, avi)'));
+      cb(new Error(`Зөвхөн видео файл зөвшөөрөгдөнө. Танай файл: ${file.mimetype}`));
     }
   }
 });
 
-// POST /videos/upload - Бичлэг upload хийх
-app.post('/videos/upload', upload.single('video'), async (req, res) => {
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+async function createAccidentFromVideo(videoData, client) {
+  const { userId, latitude, longitude, description, severity, videoPath } = videoData;
+  
+  const result = await client.query(`
+    INSERT INTO accidents (
+      user_id,
+      latitude,
+      longitude,
+      description,
+      severity,
+      status,
+      source,
+      image_url,
+      accident_time,
+      reported_by
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9)
+    RETURNING *
+  `, [
+    userId,
+    latitude,
+    longitude,
+    description || 'Камераас бичигдсэн осол',
+    severity || 'moderate',
+    'reported',
+    'camera',
+    videoPath, // Store video path in image_url for now
+    'Camera Detection'
+  ]);
+  
+  return result.rows[0];
+}
+
+async function storeVideoMetadata(videoData, client) {
+  const { userId, fileName, filePath, fileSize, mimeType } = videoData;
+  
+  const result = await client.query(`
+    INSERT INTO videos (
+      user_id,
+      file_name,
+      file_path,
+      file_size,
+      mime_type,
+      status,
+      uploaded_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    RETURNING *
+  `, [
+    userId,
+    fileName,
+    filePath,
+    fileSize,
+    mimeType,
+    'uploaded'
+  ]);
+  
+  return result.rows[0];
+}
+
+// ============================================
+// ROUTES
+// ============================================
+
+// POST /upload - VIDEO UPLOAD (SIMPLIFIED - NO GCS)
+app.post('/upload', upload.single('video'), async (req, res) => {
   const client = await pool.connect();
   
   try {
-    const { userId, latitude, longitude, description } = req.body;
-    
+    console.log('📹 Video upload эхэллээ...');
+    console.log('Body:', req.body);
+    console.log('File:', req.file ? {
+      filename: req.file.filename,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    } : 'No file');
+
+    // Validate request
     if (!req.file) {
-      return res.status(400).json({ error: 'Бичлэг файл байхгүй байна' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Видео файл байхгүй байна' 
+      });
     }
 
+    const { userId, latitude, longitude, description, severity } = req.body;
+
     if (!userId || !latitude || !longitude) {
-      await fs.unlink(req.file.path); // Файл устгах
+      // Delete uploaded file
+      await fs.unlink(req.file.path).catch(console.error);
       return res.status(400).json({ 
+        success: false,
         error: 'userId, latitude, longitude шаардлагатай' 
       });
     }
 
-    const file = req.file;
-    const fileName = `${Date.now()}-${userId}-${file.originalname}`;
-    const filePath = `videos/${fileName}`;
-
-    console.log(`📹 Бичлэг хүлээн авлаа: ${file.originalname} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
-
     await client.query('BEGIN');
 
-    // 1. Database-д video бүртгэл үүсгэх
-    const videoResult = await client.query(`
-      INSERT INTO videos (
-        user_id, file_name, file_path, file_size, 
-        duration, mime_type, status, uploaded_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      RETURNING *
-    `, [
-      userId,
-      file.originalname,
-      filePath,
-      file.size,
-      null, // Duration AI боловсруулалтаас авна
-      file.mimetype,
-      'uploading'
-    ]);
+    // 1. Store video metadata
+    const videoRecord = await storeVideoMetadata({
+      userId: parseInt(userId),
+      fileName: req.file.originalname,
+      filePath: `/videos/${req.file.filename}`,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype
+    }, client);
 
-    const video = videoResult.rows[0];
+    console.log('✅ Video metadata хадгалагдлаа:', videoRecord.id);
 
-    // 2. Google Cloud Storage-д upload
-    await bucket.upload(file.path, {
-      destination: filePath,
-      metadata: {
-        contentType: file.mimetype,
-        metadata: {
-          userId: userId,
-          videoId: video.id,
-          uploadedAt: new Date().toISOString()
-        }
-      }
-    });
-
-    console.log(`☁️  GCS-д амжилттай: ${filePath}`);
-
-    // 3. Локал файл устгах
-    await fs.unlink(file.path);
-
-    // 4. Video статус шинэчлэх
-    await client.query(`
-      UPDATE videos 
-      SET status = 'uploaded', file_path = $1
-      WHERE id = $2
-    `, [filePath, video.id]);
-
-    // 5. AI боловсруулалтын queue-д илгээх
-    const messageData = {
-      videoId: video.id,
-      userId: userId,
-      filePath: filePath,
+    // 2. Create accident record
+    const accident = await createAccidentFromVideo({
+      userId: parseInt(userId),
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
-      description: description || '',
-      timestamp: new Date().toISOString()
-    };
+      description,
+      severity: severity || 'moderate',
+      videoPath: `/videos/${req.file.filename}`
+    }, client);
 
-    await topic.publishMessage({
-      data: Buffer.from(JSON.stringify(messageData))
-    });
+    console.log('✅ Accident үүсгэгдлээ:', accident.id);
 
-    console.log(`🤖 AI queue-д нэмэгдлээ: videoId=${video.id}`);
+    // 3. Link video to accident
+    await client.query(`
+      UPDATE videos 
+      SET accident_id = $1, status = 'processed'
+      WHERE id = $2
+    `, [accident.id, videoRecord.id]);
 
     await client.query('COMMIT');
 
-    res.status(202).json({
-      message: 'Бичлэг амжилттай илгээгдлээ, боловсруулж байна',
-      videoId: video.id,
-      status: 'processing',
-      estimatedTime: '30-60 seconds'
+    console.log('✅ Video амжилттай боловсруулагдлаа');
+
+    res.status(200).json({
+      success: true,
+      message: 'Видео амжилттай илгээгдлээ',
+      videoId: videoRecord.id,
+      accidentId: accident.id,
+      status: 'processed',
+      data: {
+        accident: accident,
+        video: videoRecord
+      }
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Video upload error:', error);
+    console.error('❌ Video upload error:', error);
     
-    // Cleanup on error
+    // Cleanup: delete uploaded file
     if (req.file) {
-      try {
-        await fs.unlink(req.file.path);
-      } catch (unlinkError) {
-        console.error('Failed to delete temp file:', unlinkError);
-      }
+      await fs.unlink(req.file.path).catch(err => 
+        console.error('Failed to delete temp file:', err)
+      );
     }
     
     res.status(500).json({ 
-      error: 'Бичлэг upload хийхэд алдаа гарлаа',
+      success: false,
+      error: 'Видео илгээхэд алдаа гарлаа',
       details: error.message 
     });
   } finally {
@@ -174,75 +244,95 @@ app.post('/videos/upload', upload.single('video'), async (req, res) => {
   }
 });
 
-// GET /videos/:id/status - Бичлэг боловсруулалтын статус
+// GET /videos/:id/status - VIDEO STATUS
 app.get('/videos/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
 
     const result = await pool.query(`
-      SELECT v.*, aid.status as ai_status, aid.confidence, aid.detected_objects
+      SELECT 
+        v.*,
+        a.id as accident_id,
+        a.latitude,
+        a.longitude,
+        a.description as accident_description
       FROM videos v
-      LEFT JOIN ai_detections aid ON v.id = aid.video_id
+      LEFT JOIN accidents a ON v.accident_id = a.id
       WHERE v.id = $1
     `, [id]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Бичлэг олдсонгүй' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Видео олдсонгүй' 
+      });
     }
 
     const video = result.rows[0];
     
     res.json({
+      success: true,
       videoId: video.id,
       status: video.status,
-      aiStatus: video.ai_status,
-      confidence: video.confidence,
-      detectedObjects: video.detected_objects,
+      accidentId: video.accident_id,
       uploadedAt: video.uploaded_at,
-      processedAt: video.processed_at
+      data: video
     });
 
   } catch (error) {
     console.error('Video status error:', error);
-    res.status(500).json({ error: 'Статус шалгахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Статус шалгахад алдаа гарлаа' 
+    });
   }
 });
 
-// GET /videos/:id/download - Бичлэг татаж авах
-app.get('/videos/:id/download', async (req, res) => {
+// GET /videos - GET ALL VIDEOS
+app.get('/videos', async (req, res) => {
   try {
-    const { id } = req.params;
+    const { userId, limit = 20, offset = 0 } = req.query;
 
-    const result = await pool.query(`
-      SELECT file_path, file_name FROM videos WHERE id = $1
-    `, [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Бичлэг олдсонгүй' });
+    let query = `
+      SELECT 
+        v.*,
+        a.id as accident_id,
+        a.latitude,
+        a.longitude
+      FROM videos v
+      LEFT JOIN accidents a ON v.accident_id = a.id
+    `;
+    
+    const params = [];
+    
+    if (userId) {
+      query += ` WHERE v.user_id = $1`;
+      params.push(userId);
+      query += ` ORDER BY v.uploaded_at DESC LIMIT $2 OFFSET $3`;
+      params.push(limit, offset);
+    } else {
+      query += ` ORDER BY v.uploaded_at DESC LIMIT $1 OFFSET $2`;
+      params.push(limit, offset);
     }
 
-    const { file_path, file_name } = result.rows[0];
-
-    // Signed URL үүсгэх (15 минутын хугацаатай)
-    const [url] = await bucket.file(file_path).getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 15 * 60 * 1000, // 15 минут
-    });
+    const result = await pool.query(query, params);
 
     res.json({
-      downloadUrl: url,
-      fileName: file_name,
-      expiresIn: '15 minutes'
+      success: true,
+      data: result.rows,
+      count: result.rows.length
     });
 
   } catch (error) {
-    console.error('Video download error:', error);
-    res.status(500).json({ error: 'Download URL үүсгэхэд алдаа гарлаа' });
+    console.error('Get videos error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Видео жагсаалт авахад алдаа гарлаа' 
+    });
   }
 });
 
-// DELETE /videos/:id - Бичлэг устгах
+// DELETE /videos/:id - DELETE VIDEO
 app.delete('/videos/:id', async (req, res) => {
   const client = await pool.connect();
   
@@ -252,54 +342,162 @@ app.delete('/videos/:id', async (req, res) => {
 
     await client.query('BEGIN');
 
-    // Бичлэгийн мэдээлэл авах
+    // Get video info
     const result = await client.query(`
       SELECT file_path, user_id FROM videos WHERE id = $1
     `, [id]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Бичлэг олдсонгүй' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Видео олдсонгүй' 
+      });
     }
 
     const video = result.rows[0];
 
-    // Зөвхөн өөрийн бичлэгийг устгах эрхтэй
-    if (video.user_id !== userId) {
-      return res.status(403).json({ error: 'Бичлэг устгах эрхгүй' });
+    // Check ownership
+    if (video.user_id !== parseInt(userId)) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Видео устгах эрхгүй' 
+      });
     }
 
-    // GCS-ээс устгах
-    await bucket.file(video.file_path).delete();
+    // Delete file from disk
+    const filePath = path.join(__dirname, 'uploads', path.basename(video.file_path));
+    await fs.unlink(filePath).catch(err => 
+      console.warn('File already deleted or not found:', err.message)
+    );
 
-    // Database-ээс устгах
+    // Delete from database
     await client.query(`DELETE FROM videos WHERE id = $1`, [id]);
 
     await client.query('COMMIT');
 
-    res.json({ message: 'Бичлэг амжилттай устгагдлаа' });
+    res.json({ 
+      success: true,
+      message: 'Видео амжилттай устгагдлаа' 
+    });
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Video delete error:', error);
-    res.status(500).json({ error: 'Бичлэг устгахад алдаа гарлаа' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Видео устгахад алдаа гарлаа' 
+    });
   } finally {
     client.release();
   }
 });
 
-// Health check
+// GET /videos/:id/download - GET VIDEO FILE
+app.get('/videos/:id/download', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      SELECT file_path, file_name FROM videos WHERE id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Видео олдсонгүй' 
+      });
+    }
+
+    const { file_path, file_name } = result.rows[0];
+    const filePath = path.join(__dirname, 'uploads', path.basename(file_path));
+
+    // Check if file exists
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Видео файл олдсонгүй' 
+      });
+    }
+
+    // Send file
+    res.download(filePath, file_name);
+
+  } catch (error) {
+    console.error('Video download error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Видео татахад алдаа гарлаа' 
+    });
+  }
+});
+
+// ============================================
+// HEALTH CHECK
+// ============================================
+
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy',
     service: 'video-service',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    storage: 'local', // Changed from GCS to local
+    uptime: process.uptime()
   });
 });
 
+// ============================================
+// ERROR HANDLING
+// ============================================
+
+app.use((error, req, res, next) => {
+  console.error('Server error:', error);
+  
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ 
+        success: false,
+        error: 'Файл хэт том байна. Максимум 100MB' 
+      });
+    }
+    return res.status(400).json({ 
+      success: false,
+      error: `Upload алдаа: ${error.message}` 
+    });
+  }
+  
+  res.status(500).json({ 
+    success: false,
+    error: error.message || 'Серверийн алдаа' 
+  });
+});
+
+// ============================================
+// START SERVER
+// ============================================
+
 app.listen(PORT, () => {
-  console.log(`📹 Video Service запущен на порту ${PORT}`);
-  console.log(`☁️  GCS bucket: ${bucketName}`);
-  console.log(`📨 Pub/Sub topic: ${topicName}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📹 VIDEO SERVICE');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`🚀 Server: http://localhost:${PORT}`);
+  console.log(`💾 Storage: Local (uploads/)`);
+  console.log(`🗄️  Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing server...');
+  await pool.end();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, closing server...');
+  await pool.end();
+  process.exit(0);
 });
 
 module.exports = app;

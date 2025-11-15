@@ -695,3 +695,4 @@ BEGIN
     RAISE NOTICE '📊 Added: camera_frames, camera_detections tables';
     RAISE NOTICE '🔧 Added: triggers and views for real-time stats';
 END $$;
+
