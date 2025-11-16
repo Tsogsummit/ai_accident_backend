@@ -35,7 +35,6 @@
           <div class="card-body">
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
               <div class="form-group" style="margin-bottom: 0;"><label class="form-label" for="status-filter">Төлөв</label><select id="status-filter" class="form-control form-select"><option value="">Бүгд</option><option value="reported">Мэдээлсэн</option><option value="confirmed">Баталгаажсан</option><option value="resolved">Шийдэгдсэн</option><option value="false_alarm">Худал</option></select></div>
-              <div class="form-group" style="margin-bottom: 0;"><label class="form-label" for="severity-filter">Хүнд байдал</label><select id="severity-filter" class="form-control form-select"><option value="">Бүгд</option><option value="minor">Бага</option><option value="moderate">Дунд</option><option value="severe">Ноцтой</option></select></div>
               <div class="form-group" style="margin-bottom: 0;"><label class="form-label" for="source-filter">Эх үүсвэр</label><select id="source-filter" class="form-control form-select"><option value="">Бүгд</option><option value="user">Хэрэглэгч</option><option value="camera">Камер</option></select></div>
             </div>
           </div>
@@ -45,8 +44,8 @@
           <div class="card-body">
             <div class="table-container">
               <table class="table">
-                <thead><tr><th>ID</th><th>Огноо цаг</th><th>Байршил</th><th>Хүнд байдал</th><th>Төлөв</th><th>Тайлбар</th><th>Мэдээлсэн</th><th>Камер</th><th>Үйлдэл</th></tr></thead>
-                <tbody id="accidents-table-body"><tr><td colspan="9" class="text-center" style="padding: 2rem;"><div class="loading"><div class="spinner"></div><p>Ачааллаж байна...</p></div></td></tr></tbody>
+                <thead><tr><th>ID</th><th>Огноо цаг</th><th>Байршил</th><th>Төлөв</th><th>Тайлбар</th><th>Мэдээлсэн</th><th>Камер</th><th>Үйлдэл</th></tr></thead>
+                <tbody id="accidents-table-body"><tr><td colspan="8" class="text-center" style="padding: 2rem;"><div class="loading"><div class="spinner"></div><p>Ачааллаж байна...</p></div></td></tr></tbody>
               </table>
             </div>
             <div id="pagination-container"></div>

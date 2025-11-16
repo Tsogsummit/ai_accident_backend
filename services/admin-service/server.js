@@ -265,7 +265,7 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 50, status, severity, source } = req.query;
+    const { page = 1, limit = 50, status, source } = req.query;
     const offset = (page - 1) * limit;
 
     let query = `
@@ -287,10 +287,6 @@ app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
     if (status) {
       query += ` AND a.status = $${paramIndex++}`;
       params.push(status);
-    }
-    if (severity) {
-      query += ` AND a.severity = $${paramIndex++}`;
-      params.push(severity);
     }
     if (source) {
       query += ` AND a.source = $${paramIndex++}`;

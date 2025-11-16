@@ -78,8 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_cameras_last_frame ON cameras(last_frame_time DES
 CREATE TABLE IF NOT EXISTS accident_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
-    description TEXT,
-    severity VARCHAR(20) DEFAULT 'minor'
+    description TEXT
 );
 
 -- ✅ FIXED: Accidents хүснэгт (video_id нь nullable байх ёстой)
@@ -93,7 +92,6 @@ CREATE TABLE IF NOT EXISTS accidents (
     longitude DECIMAL(11, 8) NOT NULL,
     description TEXT,
     image_url TEXT,
-    severity VARCHAR(20) DEFAULT 'minor',
     status VARCHAR(20) DEFAULT 'reported',
     source VARCHAR(20) DEFAULT 'user',
     verification_count INTEGER DEFAULT 0,
@@ -318,7 +316,6 @@ CREATE OR REPLACE FUNCTION get_nearby_accidents(
     id INTEGER,
     latitude DECIMAL,
     longitude DECIMAL,
-    severity VARCHAR,
     status VARCHAR,
     description TEXT,
     accident_time TIMESTAMP,
@@ -330,7 +327,6 @@ BEGIN
         a.id,
         a.latitude,
         a.longitude,
-        a.severity,
         a.status,
         a.description,
         a.accident_time,
@@ -355,11 +351,7 @@ BEGIN
         NEW.id,
         NEW.latitude,
         NEW.longitude,
-        CASE NEW.severity
-            WHEN 'severe' THEN 'red'
-            WHEN 'moderate' THEN 'orange'
-            ELSE 'yellow'
-        END,
+        'red',
         'warning'
     )
     ON CONFLICT (accident_id) DO NOTHING;
@@ -428,7 +420,6 @@ SELECT
     a.latitude,
     a.longitude,
     a.description,
-    a.severity,
     a.status,
     a.source,
     a.accident_time,
@@ -500,11 +491,11 @@ GROUP BY c.id, c.name, c.location, c.is_online, c.is_recording, c.last_frame_tim
 -- =====================================================
 
 -- Accident types
-INSERT INTO accident_types (name, description, severity) VALUES
-('Мөргөлдөөн', 'Хоёр ба түүнээс дээш тээврийн хэрэгслийн мөргөлдөөн', 'moderate'),
-('Эвдрэл', 'Нэг тээврийн хэрэгслийн эвдрэл', 'minor'),
-('Хүнд осол', 'Хүн амь хохирсон, гэмтсэн', 'severe'),
-('Зам хаагдсан', 'Эвдрэл, осол зам хаасан', 'moderate')
+INSERT INTO accident_types (name, description) VALUES
+('Мөргөлдөөн', 'Хоёр ба түүнээс дээш тээврийн хэрэгслийн мөргөлдөөн'),
+('Эвдрэл', 'Нэг тээврийн хэрэгслийн эвдрэл'),
+('Хүнд осол', 'Хүн амь хохирсон, гэмтсэн'),
+('Зам хаагдсан', 'Эвдрэл, осол зам хаасан')
 ON CONFLICT DO NOTHING;
 
 -- Report reasons

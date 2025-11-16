@@ -117,7 +117,7 @@ app.get('/notifications', async (req, res) => {
     const offset = (page - 1) * limit;
 
     let query = `
-      SELECT n.*, a.latitude, a.longitude, a.severity, a.description
+      SELECT n.*, a.latitude, a.longitude, a.description
       FROM notifications n
       LEFT JOIN accidents a ON n.accident_id = a.id
       WHERE n.user_id = $1

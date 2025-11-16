@@ -4,6 +4,7 @@ const multer = require('multer');
 const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs').promises;
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -51,13 +52,12 @@ app.post('/upload', upload.single('video'), async (req, res) => {
   const client = await pool.connect();
   
   try {
-    const { userId, latitude, longitude, description, severity } = req.body;
+    const { userId, latitude, longitude, description } = req.body;
     
     console.log('📹 Video upload started');
     console.log('   userId:', userId);
     console.log('   latitude:', latitude);
     console.log('   longitude:', longitude);
-    console.log('   severity:', severity);
     
     // Validation
     if (!req.file) {
@@ -87,16 +87,15 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     const accidentResult = await client.query(`
       INSERT INTO accidents (
         user_id, latitude, longitude, description, 
-        severity, status, source, accident_time
+        status, source, accident_time
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
       RETURNING *
     `, [
       userId,
       parseFloat(latitude),
       parseFloat(longitude),
       description || 'Камераас бичигдсэн осол',
-      severity || 'moderate',
       'reported',
       'user'
     ]);
@@ -141,18 +140,28 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
     await client.query('COMMIT');
 
+    // ✅ STEP 5: Trigger AI detection (async, don't wait)
+    // Pass relative file path (filename only) since volumes are shared
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
+    const relativeFilePath = fileName; // Just the filename, AI service will find it in /app/uploads
+    triggerAIDetection(video.id, userId, relativeFilePath, parseFloat(latitude), parseFloat(longitude), description || 'Камераас бичигдсэн осол')
+      .catch(err => {
+        console.error('⚠️ Failed to trigger AI detection:', err.message);
+        // Don't fail the upload if AI service is unavailable
+      });
+
     // ✅ SUCCESS RESPONSE
     res.status(200).json({
       success: true,
-      message: 'Видео амжилттай илгээгдлээ',
+      message: 'Видео амжилттай илгээгдлээ. AI шалгалт эхэллээ.',
       videoId: video.id,
       accidentId: accident.id,
       status: 'uploaded',
+      aiProcessing: true,
       accident: {
         id: accident.id,
         latitude: accident.latitude,
         longitude: accident.longitude,
-        severity: accident.severity,
         status: accident.status,
         description: accident.description
       }
@@ -180,7 +189,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
   }
 });
 
-// GET /videos/:id/status - Video status шалгах
+// GET /videos/:id/status - Video status шалгах (with AI detection results)
 app.get('/videos/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
@@ -191,10 +200,14 @@ app.get('/videos/:id/status', async (req, res) => {
         a.id as accident_id,
         a.latitude,
         a.longitude,
-        a.severity,
-        a.status as accident_status
+        a.status as accident_status,
+        aid.confidence as ai_confidence,
+        aid.detected_objects as ai_detected_objects,
+        aid.status as ai_detection_status,
+        aid.processed_at as ai_processed_at
       FROM videos v
       LEFT JOIN accidents a ON v.accident_id = a.id
+      LEFT JOIN ai_detections aid ON v.id = aid.video_id
       WHERE v.id = $1
     `, [id]);
 
@@ -207,17 +220,61 @@ app.get('/videos/:id/status', async (req, res) => {
 
     const video = result.rows[0];
     
+    // Parse AI detection results if available
+    let aiDetection = null;
+    if (video.ai_detected_objects) {
+      try {
+        const detectedObjects = typeof video.ai_detected_objects === 'string' 
+          ? JSON.parse(video.ai_detected_objects) 
+          : video.ai_detected_objects;
+        
+        aiDetection = {
+          status: video.ai_detection_status || 'pending',
+          confidence: video.ai_confidence || null,
+          hasAccident: detectedObjects.hasAccident || false,
+          totalFrames: detectedObjects.totalFrames || null,
+          confirmedTracks: detectedObjects.confirmedTracks || null,
+          suspiciousFrames: detectedObjects.suspiciousFrames || [],
+          indicatorCounts: detectedObjects.indicatorCounts || {},
+          processedAt: video.ai_processed_at || null,
+          details: detectedObjects
+        };
+      } catch (e) {
+        console.warn('Failed to parse AI detection results:', e);
+        aiDetection = {
+          status: video.ai_detection_status || 'pending',
+          confidence: video.ai_confidence || null,
+          hasAccident: false,
+          error: 'Failed to parse detection results'
+        };
+      }
+    }
+    
+    // Determine AI processing status
+    let aiProcessingStatus = 'pending';
+    if (video.status === 'processing') {
+      aiProcessingStatus = 'processing';
+    } else if (video.status === 'completed' && aiDetection) {
+      aiProcessingStatus = 'completed';
+    } else if (video.status === 'failed') {
+      aiProcessingStatus = 'failed';
+    }
+    
     res.json({
       success: true,
       videoId: video.id,
       accidentId: video.accident_id,
       status: video.status,
       uploadedAt: video.uploaded_at,
+      processingStartedAt: video.processing_started_at || null,
+      processingCompletedAt: video.processing_completed_at || null,
+      errorMessage: video.error_message || null,
+      aiDetection: aiDetection,
+      aiProcessingStatus: aiProcessingStatus,
       accident: {
         id: video.accident_id,
         latitude: video.latitude,
         longitude: video.longitude,
-        severity: video.severity,
         status: video.accident_status
       }
     });
@@ -241,8 +298,7 @@ app.get('/videos', async (req, res) => {
         v.*,
         a.id as accident_id,
         a.latitude,
-        a.longitude,
-        a.severity
+        a.longitude
       FROM videos v
       LEFT JOIN accidents a ON v.accident_id = a.id
     `;
@@ -329,6 +385,104 @@ app.delete('/videos/:id', async (req, res) => {
     });
   } finally {
     client.release();
+  }
+});
+
+// Function to trigger AI detection
+async function triggerAIDetection(videoId, userId, filePath, latitude, longitude, description) {
+  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
+  
+  try {
+    console.log(`🤖 Triggering AI detection for video ${videoId}`);
+    
+    const response = await axios.post(`${aiServiceUrl}/detect/video`, {
+      videoId: videoId,
+      userId: userId,
+      filePath: filePath,
+      latitude: latitude,
+      longitude: longitude,
+      description: description
+    }, {
+      timeout: 5000 // 5 second timeout for initial request
+    });
+    
+    console.log(`✅ AI detection triggered: videoId=${videoId}, status=${response.data.status}`);
+    return response.data;
+    
+  } catch (error) {
+    console.error(`❌ AI detection trigger error for video ${videoId}:`, error.message);
+    
+    // Update video status to indicate AI service unavailable
+    try {
+      const client = await pool.connect();
+      await client.query(`
+        UPDATE videos 
+        SET status = 'uploaded', 
+            error_message = $1
+        WHERE id = $2
+      `, [`AI service unavailable: ${error.message}`, videoId]);
+      client.release();
+    } catch (dbErr) {
+      console.error('Failed to update video status:', dbErr);
+    }
+    
+    throw error;
+  }
+}
+
+// POST /videos/:id/retry-ai - Retry AI detection for a video
+app.post('/videos/:id/retry-ai', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(`
+      SELECT v.*, a.latitude, a.longitude, a.description
+      FROM videos v
+      LEFT JOIN accidents a ON v.accident_id = a.id
+      WHERE v.id = $1
+    `, [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Бичлэг олдсонгүй' 
+      });
+    }
+    
+    const video = result.rows[0];
+    const fileName = path.basename(video.file_path);
+    
+    console.log(`🔄 Retrying AI detection for video ${id}`);
+    
+    // Trigger AI detection
+    try {
+      await triggerAIDetection(
+        video.id,
+        video.user_id,
+        fileName,
+        parseFloat(video.latitude || 0),
+        parseFloat(video.longitude || 0),
+        video.description || ''
+      );
+      
+      res.json({
+        success: true,
+        message: 'AI шалгалт дахин эхэллээ',
+        videoId: video.id
+      });
+    } catch (aiError) {
+      res.status(500).json({
+        success: false,
+        error: `AI шалгалт эхлүүлэхэд алдаа: ${aiError.message}`
+      });
+    }
+    
+  } catch (error) {
+    console.error('Retry AI detection error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Алдаа гарлаа' 
+    });
   }
 });
 

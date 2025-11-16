@@ -218,9 +218,40 @@ app.use('/api/accidents', generalLimiter, authenticateToken, createProxy(SERVICE
   pathRewrite: { '^/api/accidents': '/accidents' }
 }));
 
-app.use('/api/videos', uploadLimiter, authenticateToken, createProxy(SERVICES.video, {
+// Video routes - specific routes must come BEFORE general routes
+// Video status can be public (no auth required)
+app.get('/api/videos/:id/status', generalLimiter, createProxy(SERVICES.video, {
   pathRewrite: { '^/api/videos': '/videos' }
 }));
+
+// Video retry AI can be public (no auth required) for debugging
+app.post('/api/videos/:id/retry-ai', generalLimiter, createProxy(SERVICES.video, {
+  pathRewrite: { '^/api/videos': '/videos' }
+}));
+
+// Video upload requires auth
+app.post('/api/video/upload', uploadLimiter, authenticateToken, createProxy(SERVICES.video, {
+  pathRewrite: { '^/api/video/upload': '/upload' }
+}));
+
+// Other video routes require auth (this must come after specific routes)
+// Only match if not status or retry-ai
+app.use('/api/videos', (req, res, next) => {
+  // Skip if it's status or retry-ai (already handled above)
+  // Check both full path and just the last segment
+  const path = req.path || req.url;
+  if (path.includes('/status') || path.includes('/retry-ai')) {
+    return next(); // Skip this middleware, route already handled above
+  }
+  // Otherwise require auth and proxy
+  return uploadLimiter(req, res, () => {
+    return authenticateToken(req, res, () => {
+      return createProxy(SERVICES.video, {
+        pathRewrite: { '^/api/videos': '/videos' }
+      })(req, res, next);
+    });
+  });
+});
 
 app.use('/api/ai', generalLimiter, authenticateToken, createProxy(SERVICES.ai, {
   pathRewrite: { '^/api/ai': '/ai' }

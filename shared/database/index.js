@@ -130,7 +130,7 @@ const queries = {
       WHERE a.id = $1
     `,
     findNearby: `
-      SELECT id, latitude, longitude, severity, status, description, timestamp,
+      SELECT id, latitude, longitude, status, description, timestamp,
              calculate_distance($1, $2, latitude, longitude) as distance
       FROM accidents
       WHERE status NOT IN ('resolved', 'false_alarm')
@@ -141,10 +141,10 @@ const queries = {
     create: `
       INSERT INTO accidents (
         user_id, camera_id, latitude, longitude, 
-        description, severity, status, source, 
+        description, status, source, 
         video_id, timestamp
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       RETURNING *
     `,
     updateStatus: `
@@ -295,12 +295,6 @@ const queries = {
       WHERE timestamp >= NOW() - INTERVAL '30 days'
       GROUP BY DATE(timestamp)
       ORDER BY date DESC
-    `,
-    accidentsBySeverity: `
-      SELECT severity, COUNT(*) as count
-      FROM accidents
-      WHERE timestamp >= NOW() - INTERVAL '30 days'
-      GROUP BY severity
     `,
     topCameras: `
       SELECT c.id, c.name, COUNT(a.id) as accident_count

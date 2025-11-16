@@ -162,17 +162,16 @@ app.get('/accidents',
   authenticateToken,
   [
     query('status').optional().isIn(['reported', 'confirmed', 'resolved', 'false_alarm']),
-    query('severity').optional().isIn(['minor', 'moderate', 'severe']),
     query('limit').optional().isInt({ min: 1, max: 100 }),
     query('offset').optional().isInt({ min: 0 }),
   ],
   validate,
   async (req, res) => {
     try {
-      const { status, severity, limit = 100, offset = 0 } = req.query;
+      const { status, limit = 100, offset = 0 } = req.query;
 
       // Cache key
-      const cacheKey = `accidents:${status || 'all'}:${severity || 'all'}:${limit}:${offset}`;
+      const cacheKey = `accidents:${status || 'all'}:${limit}:${offset}`;
       
       // Check cache
       try {
@@ -211,11 +210,6 @@ app.get('/accidents',
       if (status) {
         queryText += ` AND a.status = $${paramIndex++}`;
         params.push(status);
-      }
-
-      if (severity) {
-        queryText += ` AND a.severity = $${paramIndex++}`;
-        params.push(severity);
       }
 
       queryText += `
@@ -259,7 +253,6 @@ app.post('/accidents',
     body('latitude').isFloat({ min: -90, max: 90 }),
     body('longitude').isFloat({ min: -180, max: 180 }),
     body('description').trim().isLength({ min: 5, max: 500 }),
-    body('severity').isIn(['minor', 'moderate', 'severe']),
     body('videoId').optional().isInt(),
     body('imageUrl').optional().isURL(),
   ],
@@ -272,7 +265,6 @@ app.post('/accidents',
         latitude,
         longitude,
         description,
-        severity = 'minor',
         videoId,
         imageUrl,
       } = req.body;
@@ -284,11 +276,11 @@ app.post('/accidents',
       const accidentResult = await client.query(`
         INSERT INTO accidents (
           user_id, latitude, longitude, description, 
-          severity, status, source, video_id, image_url, accident_time
+          status, source, video_id, image_url, accident_time
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         RETURNING *
-      `, [userId, latitude, longitude, description, severity, 'reported', 'user', videoId, imageUrl]);
+      `, [userId, latitude, longitude, description, 'reported', 'user', videoId, imageUrl]);
 
       const accident = accidentResult.rows[0];
 
@@ -476,10 +468,39 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           accidentId: accident.id,
           latitude: accident.latitude,
           longitude: accident.longitude,
-          severity: accident.severity,
           description: accident.description,
           timestamp: accident.accident_time,
         });
+      }
+    }
+
+    // Also send push notifications via notification service
+    if (nearbyUsers.length > 0) {
+      try {
+        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
+        const axios = require('axios');
+        
+        await axios.post(
+          `${notificationServiceUrl}/notifications/send`,
+          {
+            userIds: nearbyUsers.map(id => parseInt(id)),
+            accidentId: accident.id,
+            type: 'accident_confirmed',
+            title: `🚨 Осол илэрлээ`,
+            message: `AI-аар баталгаажсан осол илэрлээ. ${accident.description ? accident.description.substring(0, 50) : 'Байршил: ' + accident.latitude + ', ' + accident.longitude}`,
+            data: {
+              latitude: String(accident.latitude),
+              longitude: String(accident.longitude),
+              accidentId: String(accident.id)
+            }
+          },
+          { timeout: 10000 }
+        );
+        
+        console.log(`✅ Push notifications sent via notification service`);
+      } catch (notifyErr) {
+        console.error('⚠️ Failed to send push notifications:', notifyErr.message);
+        // Don't fail the whole process if push notifications fail
       }
     }
 
@@ -490,6 +511,60 @@ async function notifyNearbyUsers(accident, radiusMeters) {
     throw error;
   }
 }
+
+// POST /accidents/:id/notify - Notify nearby users about an accident (can be called by AI service)
+app.post('/accidents/:id/notify', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { radiusMeters = 5000 } = req.body;
+
+    // Get accident details
+    const result = await pool.query(`
+      SELECT * FROM accidents WHERE id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Осол олдсонгүй'
+      });
+    }
+
+    const accident = result.rows[0];
+
+    // Notify nearby users (async, don't wait)
+    notifyNearbyUsers(accident, radiusMeters).catch(err => {
+      console.error('Notification error:', err);
+    });
+
+    // Clear cache
+    try {
+      const keys = await redis.keys('accidents:*');
+      const mapKeys = await redis.keys('map_markers:*');
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+      if (mapKeys.length > 0) {
+        await redis.del(...mapKeys);
+      }
+    } catch (redisErr) {
+      console.warn('Cache clear failed:', redisErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Мэдэгдэл илгээгдлээ',
+      accidentId: accident.id
+    });
+
+  } catch (error) {
+    console.error('POST /accidents/:id/notify error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Мэдэгдэл илгээхэд алдаа гарлаа'
+    });
+  }
+});
 
 // Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {

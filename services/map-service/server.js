@@ -33,12 +33,11 @@ app.get('/maps/markers', async (req, res) => {
     const {
       bounds,  // "lat1,lng1,lat2,lng2"
       status,
-      severity,
       limit = 100
     } = req.query;
 
     // Cache key үүсгэх
-    const cacheKey = `map_markers:${bounds}:${status}:${severity}:${limit}`;
+    const cacheKey = `map_markers:${bounds}:${status}:${limit}`;
     const cached = await redis.get(cacheKey);
 
     if (cached) {
@@ -56,7 +55,6 @@ app.get('/maps/markers', async (req, res) => {
         mm.longitude,
         mm.color,
         mm.icon_type,
-        a.severity,
         a.status,
         a.description,
         a.timestamp,

@@ -20,15 +20,6 @@ function formatNumber(number) {
   return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-function getSeverityBadge(severity) {
-  const badges = {
-    'minor': '<span class="badge badge-warning">Бага</span>',
-    'moderate': '<span class="badge badge-warning">Дунд</span>',
-    'severe': '<span class="badge badge-danger">Ноцтой</span>',
-  };
-  return badges[severity] || '<span class="badge badge-secondary">-</span>';
-}
-
 function getStatusBadge(status) {
   const badges = {
     'reported': '<span class="badge badge-warning">Мэдээлсэн</span>',
@@ -177,7 +168,6 @@ window.formatDate = formatDate;
 window.formatTime = formatTime;
 window.formatDateTime = formatDateTime;
 window.formatNumber = formatNumber;
-window.getSeverityBadge = getSeverityBadge;
 window.getStatusBadge = getStatusBadge;
 window.getUserStatusBadge = getUserStatusBadge;
 window.showToast = showToast;

@@ -1,7 +1,7 @@
 // Accident Management Script
 let accidentsData = [];
 let pagination = null;
-let currentFilters = { page: 1, limit: 50, status: '', severity: '', source: '' };
+let currentFilters = { page: 1, limit: 50, status: '', source: '' };
 
 async function initAccidents() {
   if (!checkAuth()) return;
@@ -22,7 +22,7 @@ async function initAccidents() {
 }
 
 function setupFilters() {
-  ['status-filter', 'severity-filter', 'source-filter'].forEach(id => {
+  ['status-filter', 'source-filter'].forEach(id => {
     const filter = document.getElementById(id);
     if (filter) {
       filter.addEventListener('change', (e) => {
@@ -47,14 +47,14 @@ async function loadAccidents() {
       throw new Error(result.error);
     }
   } catch (error) {
-    document.getElementById('accidents-table-body').innerHTML = '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--danger);"><i class="fas fa-exclamation-circle" style="font-size: 2rem;"></i><p>Ослын мэдээлэл ачааллахад алдаа гарлаа</p></td></tr>';
+      document.getElementById('accidents-table-body').innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--danger);"><i class="fas fa-exclamation-circle" style="font-size: 2rem;"></i><p>Ослын мэдээлэл ачааллахад алдаа гарлаа</p></td></tr>';
   }
 }
 
 function renderAccidentsTable(accidents) {
   const tbody = document.getElementById('accidents-table-body');
   if (!accidents || !accidents.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding: 2rem;"><i class="fas fa-inbox" style="font-size: 2rem;"></i><p>Осол олдсонгүй</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem;"><i class="fas fa-inbox" style="font-size: 2rem;"></i><p>Осол олдсонгүй</p></td></tr>';
     return;
   }
 
@@ -63,7 +63,6 @@ function renderAccidentsTable(accidents) {
       <td>${a.id}</td>
       <td>${formatDateTime(a.accident_time)}</td>
       <td><a href="${getMapLink(a.latitude, a.longitude)}" target="_blank">${formatCoordinates(a.latitude, a.longitude)}<i class="fas fa-external-link-alt" style="font-size: 0.75rem; margin-left: 0.25rem;"></i></a></td>
-      <td>${getSeverityBadge(a.severity)}</td>
       <td>${getStatusBadge(a.status)}</td>
       <td>${truncate(a.description || '-', 50)}</td>
       <td>${a.reported_by_name || '-'}</td>

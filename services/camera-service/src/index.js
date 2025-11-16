@@ -189,7 +189,6 @@ app.get('/cameras/:id/stats', async (req, res) => {
       SELECT 
         COUNT(DISTINCT a.id) as total_accidents,
         COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'confirmed') as confirmed_accidents,
-        COUNT(DISTINCT a.id) FILTER (WHERE a.severity = 'severe') as severe_accidents,
         AVG(a.verification_count) as avg_verification
       FROM cameras c
       LEFT JOIN accidents a ON c.id = a.camera_id AND a.accident_time >= NOW() - INTERVAL '${interval}'

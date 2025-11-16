@@ -184,6 +184,9 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       
+      # Services
+      NOTIFICATION_SERVICE_URL: http://notification-service:3005
+      
       # JWT
       JWT_SECRET: ${JWT_SECRET}
       
@@ -260,6 +263,15 @@ services:
       DB_USER: postgres
       DB_PASSWORD: ${DB_PASSWORD:-postgres123}
       
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      
+      # Services
+      NOTIFICATION_SERVICE_URL: http://notification-service:3005
+      ACCIDENT_SERVICE_URL: http://accident-service:3002
+      
       # Model
       MODEL_PATH: /app/models/yolov8n.pt
       
@@ -273,8 +285,12 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-accident-videos}
       PUBSUB_TOPIC: ${PUBSUB_TOPIC:-video-processing}
+      
+      # Video Service URL for file access
+      VIDEO_SERVICE_URL: http://video-service:3003
     volumes:
       - ai_models:/app/models
+      - video_uploads:/app/uploads:ro
       - ${GCP_KEY_FILE:-./gcp-key.json}:/app/gcp-key.json:ro
       - ./firebase.json:/app/firebase.json:ro
     networks:

@@ -448,17 +448,16 @@ class HLSStreamProcessor {
       const result = await client.query(`
         INSERT INTO accidents (
           camera_id, latitude, longitude, description,
-          severity, status, source, accident_time,
+          status, source, accident_time,
           verification_count
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 0)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW(), 0)
         RETURNING id
       `, [
         this.camera.id,
         this.camera.latitude,
         this.camera.longitude,
         `AI илэрсэн: ${detection.class_name} (${(detection.confidence * 100).toFixed(1)}%)`,
-        detection.confidence > 0.9 ? 'moderate' : 'minor',
         'reported',
         'camera'
       ]);
