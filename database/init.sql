@@ -1,4 +1,4 @@
--- Database: accident_db - IMPROVED VERSION with Admin User
+-- Database: accident_db - FIXED VERSION with proper video-accident relationship
 -- =====================================================
 -- EXTENSIONS
 -- =====================================================
@@ -6,7 +6,7 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS cube;
 CREATE EXTENSION IF NOT EXISTS earthdistance;
-CREATE EXTENSION IF NOT EXISTS pgcrypto; -- For password hashing
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- =====================================================
 -- TABLES
@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS cameras (
     resolution VARCHAR(10) DEFAULT '480p',
     fps INTEGER DEFAULT 25,
     description TEXT,
+    is_recording BOOLEAN DEFAULT false,
+    last_frame_time TIMESTAMP,
+    frames_captured INTEGER DEFAULT 0,
+    last_error TEXT,
+    stream_type VARCHAR(20) DEFAULT 'hls',
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -66,53 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_cameras_location ON cameras USING GIST (
     ll_to_earth(latitude, longitude)
 );
 CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status) WHERE status = 'active';
-
--- Camera logs хүснэгт
-CREATE TABLE IF NOT EXISTS camera_logs (
-    id SERIAL PRIMARY KEY,
-    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
-    timestamp TIMESTAMP DEFAULT NOW(),
-    status VARCHAR(50),
-    error_message TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_camera_logs_camera ON camera_logs(camera_id);
-CREATE INDEX IF NOT EXISTS idx_camera_logs_timestamp ON camera_logs(timestamp DESC);
-
--- Videos хүснэгт
-CREATE TABLE IF NOT EXISTS videos (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
-    file_name VARCHAR(255) NOT NULL,
-    file_path TEXT NOT NULL,
-    file_size BIGINT,
-    duration INTEGER,
-    mime_type VARCHAR(50),
-    status VARCHAR(20) DEFAULT 'uploading',
-    error_message TEXT,
-    uploaded_at TIMESTAMP DEFAULT NOW(),
-    processing_started_at TIMESTAMP,
-    processing_completed_at TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_id);
-CREATE INDEX IF NOT EXISTS idx_videos_camera ON videos(camera_id);
-CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
-
--- Locations хүснэгт
-CREATE TABLE IF NOT EXISTS locations (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    latitude DECIMAL(10, 8) NOT NULL,
-    longitude DECIMAL(11, 8) NOT NULL,
-    timestamp TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_locations_coords ON locations USING GIST (
-    ll_to_earth(latitude, longitude)
-);
-CREATE INDEX IF NOT EXISTS idx_locations_user_time ON locations(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_cameras_recording ON cameras(is_recording) WHERE is_recording = true;
+CREATE INDEX IF NOT EXISTS idx_cameras_last_frame ON cameras(last_frame_time DESC);
 
 -- Accident types хүснэгт
 CREATE TABLE IF NOT EXISTS accident_types (
@@ -122,12 +82,12 @@ CREATE TABLE IF NOT EXISTS accident_types (
     severity VARCHAR(20) DEFAULT 'minor'
 );
 
--- Accidents хүснэгт
+-- ✅ FIXED: Accidents хүснэгт (video_id нь nullable байх ёстой)
 CREATE TABLE IF NOT EXISTS accidents (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
-    video_id INTEGER REFERENCES videos(id) ON DELETE SET NULL,
+    video_id INTEGER, -- ✅ Эхлээд NULL, дараа нь update хийнэ
     accident_type_id INTEGER REFERENCES accident_types(id),
     latitude DECIMAL(10, 8) NOT NULL,
     longitude DECIMAL(11, 8) NOT NULL,
@@ -148,6 +108,49 @@ CREATE INDEX IF NOT EXISTS idx_accidents_status ON accidents(status);
 CREATE INDEX IF NOT EXISTS idx_accidents_time ON accidents(accident_time DESC);
 CREATE INDEX IF NOT EXISTS idx_accidents_active ON accidents(accident_time DESC) 
     WHERE status NOT IN ('resolved', 'false_alarm');
+CREATE INDEX IF NOT EXISTS idx_accidents_video ON accidents(video_id);
+
+-- ✅ FIXED: Videos хүснэгт (accident_id нэмэгдлээ)
+CREATE TABLE IF NOT EXISTS videos (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
+    accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE, -- ✅ ШИНЭ
+    file_name VARCHAR(255) NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size BIGINT,
+    duration INTEGER,
+    mime_type VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'uploading',
+    error_message TEXT,
+    uploaded_at TIMESTAMP DEFAULT NOW(),
+    processing_started_at TIMESTAMP,
+    processing_completed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_id);
+CREATE INDEX IF NOT EXISTS idx_videos_camera ON videos(camera_id);
+CREATE INDEX IF NOT EXISTS idx_videos_accident ON videos(accident_id); -- ✅ ШИНЭ
+CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
+
+-- ✅ Add foreign key constraint for accidents.video_id (after videos table is created)
+ALTER TABLE accidents 
+ADD CONSTRAINT fk_accidents_video 
+FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE SET NULL;
+
+-- Locations хүснэгт
+CREATE TABLE IF NOT EXISTS locations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),
+    latitude DECIMAL(10, 8) NOT NULL,
+    longitude DECIMAL(11, 8) NOT NULL,
+    timestamp TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_locations_coords ON locations USING GIST (
+    ll_to_earth(latitude, longitude)
+);
+CREATE INDEX IF NOT EXISTS idx_locations_user_time ON locations(user_id, timestamp DESC);
 
 -- AI Detections хүснэгт
 CREATE TABLE IF NOT EXISTS ai_detections (
@@ -222,6 +225,59 @@ CREATE TABLE IF NOT EXISTS map_markers (
 CREATE INDEX IF NOT EXISTS idx_map_markers_coords ON map_markers USING GIST (
     ll_to_earth(latitude, longitude)
 );
+
+-- Camera logs хүснэгт
+CREATE TABLE IF NOT EXISTS camera_logs (
+    id SERIAL PRIMARY KEY,
+    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
+    timestamp TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(50),
+    error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_logs_camera ON camera_logs(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_logs_timestamp ON camera_logs(timestamp DESC);
+
+-- Camera frames хүснэгт
+CREATE TABLE IF NOT EXISTS camera_frames (
+    id SERIAL PRIMARY KEY,
+    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
+    frame_number INTEGER NOT NULL,
+    timestamp TIMESTAMP DEFAULT NOW(),
+    image_path TEXT,
+    image_url TEXT,
+    processed BOOLEAN DEFAULT false,
+    detection_count INTEGER DEFAULT 0,
+    
+    CONSTRAINT unique_camera_frame UNIQUE (camera_id, frame_number, timestamp)
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_frames_camera ON camera_frames(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_frames_processed ON camera_frames(processed) WHERE processed = false;
+CREATE INDEX IF NOT EXISTS idx_camera_frames_timestamp ON camera_frames(timestamp DESC);
+
+-- Camera detections хүснэгт
+CREATE TABLE IF NOT EXISTS camera_detections (
+    id SERIAL PRIMARY KEY,
+    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
+    frame_id INTEGER REFERENCES camera_frames(id) ON DELETE CASCADE,
+    detection_time TIMESTAMP DEFAULT NOW(),
+    object_class VARCHAR(50) NOT NULL,
+    confidence DECIMAL(5, 4) NOT NULL,
+    bbox_x DECIMAL(8, 2),
+    bbox_y DECIMAL(8, 2),
+    bbox_width DECIMAL(8, 2),
+    bbox_height DECIMAL(8, 2),
+    potential_accident BOOLEAN DEFAULT false,
+    accident_id INTEGER REFERENCES accidents(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_detections_camera ON camera_detections(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_detections_time ON camera_detections(detection_time DESC);
+CREATE INDEX IF NOT EXISTS idx_camera_detections_class ON camera_detections(object_class);
+CREATE INDEX IF NOT EXISTS idx_camera_detections_potential ON camera_detections(potential_accident) 
+    WHERE potential_accident = true;
 
 -- =====================================================
 -- FUNCTIONS
@@ -345,6 +401,23 @@ BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION update_user_timestamp();
 
+CREATE OR REPLACE FUNCTION update_camera_last_frame()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE cameras 
+    SET last_frame_time = NOW(),
+        frames_captured = frames_captured + 1
+    WHERE id = NEW.camera_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_camera_frame ON camera_frames;
+CREATE TRIGGER trigger_update_camera_frame
+AFTER INSERT ON camera_frames
+FOR EACH ROW
+EXECUTE FUNCTION update_camera_last_frame();
+
 -- =====================================================
 -- VIEWS
 -- =====================================================
@@ -362,7 +435,8 @@ SELECT
     u.name as reported_by,
     c.name as camera_name,
     COUNT(DISTINCT fr.id) as false_report_count,
-    AVG(aid.confidence) as avg_ai_confidence
+    AVG(aid.confidence) as avg_ai_confidence,
+    v.file_path as video_path
 FROM accidents a
 LEFT JOIN users u ON a.user_id = u.id
 LEFT JOIN cameras c ON a.camera_id = c.id
@@ -370,7 +444,7 @@ LEFT JOIN false_reports fr ON a.id = fr.accident_id
 LEFT JOIN videos v ON a.video_id = v.id
 LEFT JOIN ai_detections aid ON v.id = aid.video_id
 WHERE a.status IN ('reported', 'confirmed')
-GROUP BY a.id, u.name, c.name;
+GROUP BY a.id, u.name, c.name, v.file_path;
 
 CREATE OR REPLACE VIEW camera_statistics AS
 SELECT 
@@ -400,6 +474,26 @@ FROM users u
 LEFT JOIN accidents a ON u.id = a.user_id
 LEFT JOIN false_reports fr ON u.id = fr.user_id
 GROUP BY u.id, u.name, u.phone;
+
+CREATE OR REPLACE VIEW camera_live_stats AS
+SELECT 
+    c.id,
+    c.name,
+    c.location,
+    c.is_online,
+    c.is_recording,
+    c.last_frame_time,
+    c.frames_captured,
+    COUNT(DISTINCT cf.id) as total_frames,
+    COUNT(DISTINCT cd.id) as total_detections,
+    COUNT(DISTINCT cd.id) FILTER (WHERE cd.potential_accident = true) as potential_accidents,
+    MAX(cd.detection_time) as last_detection_time,
+    COUNT(DISTINCT a.id) as accidents_created
+FROM cameras c
+LEFT JOIN camera_frames cf ON c.id = cf.camera_id AND cf.timestamp >= NOW() - INTERVAL '1 hour'
+LEFT JOIN camera_detections cd ON c.id = cd.camera_id AND cd.detection_time >= NOW() - INTERVAL '1 hour'
+LEFT JOIN accidents a ON c.id = a.camera_id AND a.accident_time >= NOW() - INTERVAL '1 hour'
+GROUP BY c.id, c.name, c.location, c.is_online, c.is_recording, c.last_frame_time, c.frames_captured;
 
 -- =====================================================
 -- INITIAL DATA
@@ -431,11 +525,8 @@ DECLARE
     admin_user_id INTEGER;
     hashed_password TEXT;
 BEGIN
-    -- Generate bcrypt hash for 'admin123' (12 rounds)
-    -- In production, use a STRONG password!
     hashed_password := crypt('admin123', gen_salt('bf', 12));
     
-    -- Create admin user
     INSERT INTO users (
         phone, 
         email, 
@@ -456,7 +547,6 @@ BEGIN
     SET password_hash = EXCLUDED.password_hash
     RETURNING id INTO admin_user_id;
     
-    -- Create admin entry
     INSERT INTO admins (
         user_id,
         username,
@@ -474,30 +564,12 @@ BEGIN
     RAISE NOTICE '   Username: admin';
     RAISE NOTICE '   Password: admin123';
     RAISE NOTICE '   Phone: +97699999999';
-    RAISE NOTICE '   Email: admin@accident.mn';
-    RAISE NOTICE '';
-    RAISE NOTICE '⚠️  IMPORTANT: Change the admin password immediately in production!';
     
-END $$;
-
--- =====================================================
--- SAMPLE DATA (Development only)
--- =====================================================
-
--- Sample users (only in development)
-DO $$
-BEGIN
-    IF current_setting('server_version_num')::integer >= 140000 THEN
-        INSERT INTO users (phone, email, name, password_hash, role) VALUES
-        ('+97699000001', 'user1@example.com', 'Батбаяр', crypt('password123', gen_salt('bf', 12)), 'user'),
-        ('+97699000002', 'user2@example.com', 'Цэцэгмаа', crypt('password123', gen_salt('bf', 12)), 'user')
-        ON CONFLICT DO NOTHING;
-    END IF;
 END $$;
 
 -- Sample cameras
 INSERT INTO cameras (name, location, latitude, longitude, stream_url, is_online, resolution, fps, description) VALUES
-('Энхтайваны өргөн чөлөө - Камер 1', 'Энхтайваны өргөн чөлөө, Чингэлтэй', 47.9184, 106.9177, 'rtsp://camera1.example.com/stream', false, '720p', 25, 'Test камер - Development'),
+('Энхтайваны өргөн чөлөө - Камер 1', 'Энхтайваны өргөн чөлөө, Чингэлтэй', 47.9184, 106.9177, 'rtsp://camera1.example.com/stream', false, '720p', 25, 'Test камер'),
 ('UB Traffic - Камер 32770', 'Улаанбаатар хот', 47.9184, 106.9057, 'https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8', true, '480p', 25, 'UB Traffic system камер')
 ON CONFLICT DO NOTHING;
 
@@ -508,10 +580,10 @@ ON CONFLICT DO NOTHING;
 COMMENT ON TABLE users IS 'Хэрэглэгчийн үндсэн мэдээлэл';
 COMMENT ON TABLE admins IS 'Админ хэрэглэгчид';
 COMMENT ON TABLE accidents IS 'Авто замын ослын мэдээлэл';
+COMMENT ON TABLE videos IS 'Бичлэгийн мэдээлэл';
 COMMENT ON TABLE cameras IS 'Авто замын камерууд';
-COMMENT ON TABLE ai_detections IS 'AI-ээр илрүүлсэн үр дүн';
-COMMENT ON TABLE false_reports IS 'Буруу мэдээллийн засварлалт';
-COMMENT ON COLUMN accidents.accident_time IS 'Ослын болсон цаг';
+COMMENT ON COLUMN videos.accident_id IS 'Холбогдох ослын ID';
+COMMENT ON COLUMN accidents.video_id IS 'Холбогдох бичлэгийн ID';
 
 -- =====================================================
 -- COMPLETION MESSAGE
@@ -523,176 +595,7 @@ BEGIN
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
     RAISE NOTICE '✅ Database initialization completed successfully!';
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
-    RAISE NOTICE '';
-    RAISE NOTICE '📊 Created tables: users, admins, cameras, accidents, videos, etc.';
-    RAISE NOTICE '🔧 Created functions: calculate_distance, get_nearby_accidents';
-    RAISE NOTICE '⚡ Created triggers: auto map markers, timestamps';
-    RAISE NOTICE '👁️  Created views: active_accidents, camera_statistics, user_statistics';
-    RAISE NOTICE '';
-    RAISE NOTICE '👤 Default Admin Login:';
-    RAISE NOTICE '   URL: http://localhost:3009/admin/login';
-    RAISE NOTICE '   Username: admin';
-    RAISE NOTICE '   Password: admin123';
-    RAISE NOTICE '';
-    RAISE NOTICE '⚠️  SECURITY WARNING:';
-    RAISE NOTICE '   Change admin password immediately in production!';
-    RAISE NOTICE '';
+    RAISE NOTICE '📊 Video-Accident relationship: FIXED';
+    RAISE NOTICE '🔗 Foreign keys: accidents.video_id ↔ videos.accident_id';
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
 END $$;
-
--- Migration: Add camera recording and stream fields
--- Date: 2025-10-31
-
--- =====================================================
--- ADD NEW COLUMNS TO CAMERAS TABLE
--- =====================================================
-
--- Бичлэгийн статус
-ALTER TABLE cameras 
-ADD COLUMN IF NOT EXISTS is_recording BOOLEAN DEFAULT false,
-ADD COLUMN IF NOT EXISTS last_frame_time TIMESTAMP,
-ADD COLUMN IF NOT EXISTS frames_captured INTEGER DEFAULT 0,
-ADD COLUMN IF NOT EXISTS last_error TEXT,
-ADD COLUMN IF NOT EXISTS stream_type VARCHAR(20) DEFAULT 'hls';
-
--- Index нэмэх
-CREATE INDEX IF NOT EXISTS idx_cameras_recording ON cameras(is_recording) WHERE is_recording = true;
-CREATE INDEX IF NOT EXISTS idx_cameras_last_frame ON cameras(last_frame_time DESC);
-
--- =====================================================
--- CAMERA FRAMES TABLE (AI боловсруулалтын frame-үүд)
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS camera_frames (
-    id SERIAL PRIMARY KEY,
-    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
-    frame_number INTEGER NOT NULL,
-    timestamp TIMESTAMP DEFAULT NOW(),
-    image_path TEXT,
-    image_url TEXT,
-    processed BOOLEAN DEFAULT false,
-    detection_count INTEGER DEFAULT 0,
-    
-    CONSTRAINT unique_camera_frame UNIQUE (camera_id, frame_number, timestamp)
-);
-
-CREATE INDEX IF NOT EXISTS idx_camera_frames_camera ON camera_frames(camera_id);
-CREATE INDEX IF NOT EXISTS idx_camera_frames_processed ON camera_frames(processed) WHERE processed = false;
-CREATE INDEX IF NOT EXISTS idx_camera_frames_timestamp ON camera_frames(timestamp DESC);
-
--- =====================================================
--- CAMERA DETECTIONS (камераас илэрсэн объектууд)
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS camera_detections (
-    id SERIAL PRIMARY KEY,
-    camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
-    frame_id INTEGER REFERENCES camera_frames(id) ON DELETE CASCADE,
-    detection_time TIMESTAMP DEFAULT NOW(),
-    
-    -- Detection мэдээлэл
-    object_class VARCHAR(50) NOT NULL,
-    confidence DECIMAL(5, 4) NOT NULL,
-    bbox_x DECIMAL(8, 2),
-    bbox_y DECIMAL(8, 2),
-    bbox_width DECIMAL(8, 2),
-    bbox_height DECIMAL(8, 2),
-    
-    -- Осол байж болзошгүй
-    potential_accident BOOLEAN DEFAULT false,
-    accident_id INTEGER REFERENCES accidents(id) ON DELETE SET NULL,
-    
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_camera_detections_camera ON camera_detections(camera_id);
-CREATE INDEX IF NOT EXISTS idx_camera_detections_time ON camera_detections(detection_time DESC);
-CREATE INDEX IF NOT EXISTS idx_camera_detections_class ON camera_detections(object_class);
-CREATE INDEX IF NOT EXISTS idx_camera_detections_potential ON camera_detections(potential_accident) 
-    WHERE potential_accident = true;
-
--- =====================================================
--- FUNCTIONS
--- =====================================================
-
--- Камерын сүүлийн frame цагийг шинэчлэх
-CREATE OR REPLACE FUNCTION update_camera_last_frame()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE cameras 
-    SET last_frame_time = NOW(),
-        frames_captured = frames_captured + 1
-    WHERE id = NEW.camera_id;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trigger_update_camera_frame ON camera_frames;
-CREATE TRIGGER trigger_update_camera_frame
-AFTER INSERT ON camera_frames
-FOR EACH ROW
-EXECUTE FUNCTION update_camera_last_frame();
-
--- =====================================================
--- VIEWS
--- =====================================================
-
--- Камерын бодит цагийн статистик
-CREATE OR REPLACE VIEW camera_live_stats AS
-SELECT 
-    c.id,
-    c.name,
-    c.location,
-    c.is_online,
-    c.is_recording,
-    c.last_frame_time,
-    c.frames_captured,
-    COUNT(DISTINCT cf.id) as total_frames,
-    COUNT(DISTINCT cd.id) as total_detections,
-    COUNT(DISTINCT cd.id) FILTER (WHERE cd.potential_accident = true) as potential_accidents,
-    MAX(cd.detection_time) as last_detection_time,
-    COUNT(DISTINCT a.id) as accidents_created
-FROM cameras c
-LEFT JOIN camera_frames cf ON c.id = cf.camera_id AND cf.timestamp >= NOW() - INTERVAL '1 hour'
-LEFT JOIN camera_detections cd ON c.id = cd.camera_id AND cd.detection_time >= NOW() - INTERVAL '1 hour'
-LEFT JOIN accidents a ON c.id = a.camera_id AND a.accident_time >= NOW() - INTERVAL '1 hour'
-GROUP BY c.id, c.name, c.location, c.is_online, c.is_recording, c.last_frame_time, c.frames_captured;
-
--- =====================================================
--- SAMPLE DATA UPDATE
--- =====================================================
-
--- Одоо байгаа камеруудыг шинэчлэх
-UPDATE cameras 
-SET stream_type = 'hls',
-    is_recording = false,
-    frames_captured = 0
-WHERE stream_url LIKE '%m3u8%';
-
-UPDATE cameras 
-SET stream_type = 'rtsp',
-    is_recording = false,
-    frames_captured = 0
-WHERE stream_url LIKE 'rtsp://%';
-
--- =====================================================
--- COMMENTS
--- =====================================================
-
-COMMENT ON TABLE camera_frames IS 'Камераас татаж авсан frame-үүд';
-COMMENT ON TABLE camera_detections IS 'Камерын frame дээр илэрсэн объектууд';
-COMMENT ON COLUMN cameras.is_recording IS 'Одоо бичлэг авч байгаа эсэх';
-COMMENT ON COLUMN cameras.last_frame_time IS 'Сүүлийн frame-ийн цаг';
-COMMENT ON COLUMN cameras.frames_captured IS 'Нийт авсан frame-үүдийн тоо';
-
--- =====================================================
--- COMPLETION MESSAGE
--- =====================================================
-
-DO $$
-BEGIN
-    RAISE NOTICE '✅ Camera recording fields migration completed!';
-    RAISE NOTICE '📊 Added: camera_frames, camera_detections tables';
-    RAISE NOTICE '🔧 Added: triggers and views for real-time stats';
-END $$;
-
