@@ -187,14 +187,21 @@ app.get('/accidents',
         console.warn('Redis cache read failed:', redisErr.message);
       }
 
+      // Get current user ID from JWT token
+      const currentUserId = req.user?.userId;
+
       let queryText = `
-        SELECT 
+        SELECT
           a.*,
           u.name as reported_by_name,
           u.phone as reported_by_phone,
           c.name as camera_name,
           COUNT(DISTINCT fr.id) as false_report_count,
-          AVG(aid.confidence)::float as avg_confidence
+          AVG(aid.confidence)::float as avg_confidence,
+          EXISTS(
+            SELECT 1 FROM false_reports fr2
+            WHERE fr2.accident_id = a.id AND fr2.user_id = $1
+          ) as user_has_reported
         FROM accidents a
         LEFT JOIN users u ON a.user_id = u.id
         LEFT JOIN cameras c ON a.camera_id = c.id
@@ -204,8 +211,8 @@ app.get('/accidents',
         WHERE 1=1
       `;
       
-      const params = [];
-      let paramIndex = 1;
+      const params = [currentUserId]; // ✅ First param is current user ID
+      let paramIndex = 2; // ✅ Start from $2 for other params
 
       if (status) {
         queryText += ` AND a.status = $${paramIndex++}`;
@@ -217,7 +224,7 @@ app.get('/accidents',
         ORDER BY a.accident_time DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}
       `;
-      
+
       params.push(parseInt(limit), parseInt(offset));
 
       const result = await pool.query(queryText, params);
@@ -334,14 +341,17 @@ app.get('/accidents/:id',
       const { id } = req.params;
 
       if (!/^\d+$/.test(id)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Буруу ID формат' 
+        return res.status(400).json({
+          success: false,
+          error: 'Буруу ID формат'
         });
       }
 
+      // Get current user ID from JWT token
+      const currentUserId = req.user?.userId;
+
       const result = await pool.query(`
-        SELECT a.*, 
+        SELECT a.*,
                u.name as reported_by_name,
                u.phone as reported_by_phone,
                v.file_path as video_path,
@@ -349,14 +359,18 @@ app.get('/accidents/:id',
                aid.confidence as ai_confidence,
                aid.detected_objects,
                c.name as camera_name,
-               c.location as camera_location
+               c.location as camera_location,
+               EXISTS(
+                 SELECT 1 FROM false_reports fr
+                 WHERE fr.accident_id = a.id AND fr.user_id = $2
+               ) as user_has_reported
         FROM accidents a
         LEFT JOIN users u ON a.user_id = u.id
         LEFT JOIN videos v ON a.video_id = v.id
         LEFT JOIN ai_detections aid ON v.id = aid.video_id
         LEFT JOIN cameras c ON a.camera_id = c.id
         WHERE a.id = $1
-      `, [id]);
+      `, [id, currentUserId]);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ 

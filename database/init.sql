@@ -177,11 +177,47 @@ CREATE TABLE IF NOT EXISTS false_reports (
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     reason_id INTEGER REFERENCES report_reasons(id),
     comment TEXT,
-    reported_at TIMESTAMP DEFAULT NOW()
+    reported_at TIMESTAMP DEFAULT NOW(),
+    -- ✅ UNIQUE constraint: one user can only report one accident once
+    CONSTRAINT unique_user_accident_report UNIQUE (user_id, accident_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_false_reports_accident ON false_reports(accident_id);
 CREATE INDEX IF NOT EXISTS idx_false_reports_user ON false_reports(user_id);
+
+-- =====================================================
+-- MIGRATION: Ensure UNIQUE constraint exists
+-- For existing databases that may have duplicate reports
+-- =====================================================
+
+DO $$
+BEGIN
+    -- Check if constraint already exists
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'unique_user_accident_report'
+    ) THEN
+        RAISE NOTICE '⚠️ UNIQUE constraint not found. Cleaning up duplicates...';
+
+        -- Remove duplicate reports (keep the oldest one per user-accident pair)
+        DELETE FROM false_reports
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM false_reports
+            GROUP BY user_id, accident_id
+        );
+
+        -- Add UNIQUE constraint
+        ALTER TABLE false_reports
+        ADD CONSTRAINT unique_user_accident_report
+        UNIQUE (user_id, accident_id);
+
+        RAISE NOTICE '✅ UNIQUE constraint added successfully!';
+        RAISE NOTICE '✅ One user can now only report one accident once.';
+    ELSE
+        RAISE NOTICE '✅ UNIQUE constraint already exists.';
+    END IF;
+END $$;
 
 -- Notifications хүснэгт
 CREATE TABLE IF NOT EXISTS notifications (

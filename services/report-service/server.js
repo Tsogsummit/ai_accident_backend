@@ -116,6 +116,21 @@ app.post('/false-reports', async (req, res) => {
 
     await client.query('BEGIN');
 
+    // ✅ CHECK: Has this user already reported this accident?
+    const existingReport = await client.query(`
+      SELECT id FROM false_reports
+      WHERE accident_id = $1 AND user_id = $2
+    `, [accidentId, userId]);
+
+    if (existingReport.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        error: 'Та энэ ослыг аль хэдийн мэдээлсэн байна',
+        alreadyReported: true
+      });
+    }
+
     // False report бүртгэх
     const reportResult = await client.query(`
       INSERT INTO false_reports (accident_id, user_id, reason_id, comment, reported_at)
@@ -215,9 +230,20 @@ app.post('/false-reports', async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Create false report error:', error);
-    res.status(500).json({ 
+
+    // ✅ Handle duplicate key violation (UNIQUE constraint)
+    if (error.code === '23505' && error.constraint === 'unique_user_accident_report') {
+      return res.status(409).json({
+        success: false,
+        error: 'Та энэ ослыг аль хэдийн мэдээлсэн байна',
+        alreadyReported: true
+      });
+    }
+
+    res.status(500).json({
       success: false,
-      error: 'Бүртгэхэд алдаа гарлаа' 
+      error: 'Бүртгэхэд алдаа гарлаа',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   } finally {
     client.release();
