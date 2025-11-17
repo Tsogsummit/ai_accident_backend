@@ -96,6 +96,10 @@ class API {
   async getDashboardStats() { return this.get('/admin/dashboard/stats'); }
   async getAccidents(params = {}) { return this.get('/admin/accidents', params); }
   async updateAccidentStatus(id, status) { return this.put(`/admin/accidents/${id}/status`, { status }); }
+  async getReportStatistics(params = {}) { return this.get('/admin/reports/statistics', params); }
+  async getReportUserActivity(params = {}) { return this.get('/admin/reports/user-activity', params); }
+  async getReportCameraPerformance(params = {}) { return this.get('/admin/reports/camera-performance', params); }
+  async getReportAiAccuracy(params = {}) { return this.get('/admin/reports/ai-accuracy', params); }
 
   async getUsers(params = {}) {
     try {

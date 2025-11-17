@@ -9,31 +9,214 @@
 <body>
   <div class="admin-container">
     <aside class="sidebar">
-      <div class="sidebar-header"><h2><i class="fas fa-car-crash"></i> Admin Panel</h2><p>AI Accident Detection</p></div>
+      <div class="sidebar-header">
+        <h2><i class="fas fa-car-crash"></i> Admin Panel</h2>
+        <p>AI Accident Detection</p>
+      </div>
       <nav class="sidebar-nav">
-        <div class="nav-item"><a href="/dashboard.html" class="nav-link"><i class="fas fa-th-large"></i><span>Дашбоард</span></a></div>
-        <div class="nav-item"><a href="/accidents.html" class="nav-link"><i class="fas fa-exclamation-triangle"></i><span>Ослууд</span></a></div>
-        <div class="nav-item"><a href="/users.html" class="nav-link"><i class="fas fa-users"></i><span>Хэрэглэгчид</span></a></div>
-        <div class="nav-item"><a href="/cameras.html" class="nav-link"><i class="fas fa-video"></i><span>Камерууд</span></a></div>
+        <div class="nav-item"><a href="/dashboard.html" class="nav-link" data-page="dashboard"><i class="fas fa-th-large"></i><span>Дашбоард</span></a></div>
+        <div class="nav-item"><a href="/accidents.html" class="nav-link" data-page="accidents"><i class="fas fa-exclamation-triangle"></i><span>Ослууд</span></a></div>
+        <div class="nav-item"><a href="/users.html" class="nav-link" data-page="users"><i class="fas fa-users"></i><span>Хэрэглэгчид</span></a></div>
+        <div class="nav-item"><a href="/cameras.html" class="nav-link" data-page="cameras"><i class="fas fa-video"></i><span>Камерууд</span></a></div>
         <div class="nav-item"><a href="/reports.html" class="nav-link active" data-page="reports"><i class="fas fa-chart-bar"></i><span>Тайлангууд</span></a></div>
         <div class="nav-item"><a href="/services.html" class="nav-link" data-page="services"><i class="fas fa-server"></i><span>Сервисүүд</span></a></div>
       </nav>
     </aside>
     <main class="main-content">
       <header class="topbar">
-        <div class="topbar-left"><h1>Тайлангууд</h1></div>
+        <div class="topbar-left">
+          <h1>Тайлангууд</h1>
+          <p id="selected-period" style="margin-top: 0.25rem; color: var(--secondary); font-size: 0.9rem;">--</p>
+        </div>
         <div class="topbar-right">
+          <button class="btn btn-sm btn-secondary" id="refresh-reports"><i class="fas fa-sync-alt"></i></button>
           <div class="user-info"><div class="user-avatar">A</div><div class="user-details"><div class="user-name">Admin</div><div class="user-role">Админ</div></div></div>
           <button class="btn btn-sm btn-danger" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Гарах</button>
         </div>
       </header>
       <div class="content">
         <div class="card">
-          <div class="card-body" style="text-align: center; padding: 4rem 2rem;">
-            <i class="fas fa-chart-bar" style="font-size: 4rem; color: var(--primary); margin-bottom: 1rem;"></i>
-            <h2 style="margin-bottom: 1rem;">Тайлангийн систем</h2>
-            <p style="color: var(--secondary);">Тайлангийн модуль хөгжүүлэлт хийгдэж байна.</p>
-            <div style="margin-top: 2rem;"><a href="/dashboard.html" class="btn btn-primary"><i class="fas fa-arrow-left"></i> Дашбоард руу буцах</a></div>
+          <div class="card-header">
+            <h3 class="card-title">Хугацааны сонголт</h3>
+            <div class="quick-range" id="quick-range">
+              <button class="btn btn-sm btn-secondary" data-range="7">7 хоног</button>
+              <button class="btn btn-sm btn-secondary" data-range="14">14 хоног</button>
+              <button class="btn btn-sm btn-secondary active" data-range="30">30 хоног</button>
+              <button class="btn btn-sm btn-secondary" data-range="90">90 хоног</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="report-filters">
+              <div class="form-group">
+                <label class="form-label" for="start-date">Эхлэх огноо</label>
+                <input type="date" id="start-date" class="form-control">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="end-date">Дуусах огноо</label>
+                <input type="date" id="end-date" class="form-control">
+              </div>
+              <div class="form-group">
+                <label class="form-label">&nbsp;</label>
+                <button class="btn btn-primary" id="apply-filter-btn"><i class="fas fa-filter"></i> Хэрэгжүүлэх</button>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Экспорт</label>
+                <div class="export-actions">
+                  <button class="btn btn-sm btn-secondary" data-export="accidents"><i class="fas fa-file-export"></i> Ослын CSV</button>
+                  <button class="btn btn-sm btn-secondary" data-export="false_reports"><i class="fas fa-ban"></i> Худал мэдээлэл</button>
+                  <button class="btn btn-sm btn-secondary" data-export="user_activity"><i class="fas fa-users"></i> Хэрэглэгч</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-grid" id="report-summary">
+          <div class="summary-card">
+            <div class="summary-label">Нийт осол</div>
+            <div class="summary-value" id="summary-total">0</div>
+            <small>Сонгосон хугацаанд</small>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">Хүнд осол</div>
+            <div class="summary-value" id="summary-severe">0</div>
+            <small>Severity: Severe</small>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">Баталгаажсан</div>
+            <div class="summary-value" id="summary-confirmed">0</div>
+            <small>Status: Confirmed</small>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">Худал мэдээлэл</div>
+            <div class="summary-value" id="summary-false">0</div>
+            <small>Status: False Alarm</small>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Нэгдсэн харагдац</h3>
+          </div>
+          <div class="card-body">
+            <div class="report-grid">
+              <div class="report-card">
+                <h4>Хүндийн зэрэг</h4>
+                <ul id="severity-list" class="report-list"></ul>
+              </div>
+              <div class="report-card">
+                <h4>Төлөв</h4>
+                <ul id="status-list" class="report-list"></ul>
+              </div>
+              <div class="report-card">
+                <h4>Эх үүсвэр</h4>
+                <ul id="source-list" class="report-list"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Өдөр тутмын тренд</h3>
+          </div>
+          <div class="card-body">
+            <div class="table-container">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Огноо</th>
+                    <th>Нийт</th>
+                    <th>Хүнд</th>
+                    <th>Дунд</th>
+                    <th>Хөнгөн</th>
+                  </tr>
+                </thead>
+                <tbody id="daily-stats-body">
+                  <tr><td colspan="5" class="text-center">Өгөгдөл ачаалж байна...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="report-columns">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Халуун цэгүүд</h3>
+            </div>
+            <div class="card-body">
+              <div class="table-container">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Байршил</th>
+                      <th>Нийт</th>
+                    </tr>
+                  </thead>
+                  <tbody id="top-locations-body">
+                    <tr><td colspan="3" class="text-center">Өгөгдөл ачаалж байна...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Камерын гүйцэтгэл</h3>
+            </div>
+            <div class="card-body">
+              <div class="table-container">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Камер</th>
+                      <th>Нийт осол</th>
+                      <th>Сүүлийн 30 хоног</th>
+                    </tr>
+                  </thead>
+                  <tbody id="camera-stats-body">
+                    <tr><td colspan="3" class="text-center">Өгөгдөл ачаалж байна...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="report-columns">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Идэвхтэй хэрэглэгчид</h3>
+            </div>
+            <div class="card-body">
+              <div class="table-container">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Хэрэглэгч</th>
+                      <th>Нийт осол</th>
+                      <th>Баталгаажсан</th>
+                      <th>Худал</th>
+                    </tr>
+                  </thead>
+                  <tbody id="user-activity-body">
+                    <tr><td colspan="4" class="text-center">Өгөгдөл ачаалж байна...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">AI нарийвчлал</h3>
+            </div>
+            <div class="card-body">
+              <div id="ai-accuracy-summary" class="ai-summary">
+                <div class="loading"><div class="spinner"></div><p>Ачааллаж байна...</p></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -42,6 +225,6 @@
   <script src="/js/api.js"></script>
   <script src="/js/utils.js"></script>
   <script src="/js/auth.js"></script>
-  <script>if(requireAuth()){initUserInfo();initLogoutButton();}</script>
+  <script src="/js/reports.js"></script>
 </body>
 </html>

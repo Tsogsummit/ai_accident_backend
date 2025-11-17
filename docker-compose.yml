@@ -377,9 +377,6 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       
-      # Google Maps API
-      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
-      
       # Cache TTL
       CACHE_TTL_MAP_MARKERS: ${CACHE_TTL_MAP_MARKERS:-120}
     networks:

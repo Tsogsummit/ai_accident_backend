@@ -20,6 +20,14 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3002;
+const AUTO_RESOLVE_CHECK_INTERVAL_MINUTES = parseInt(
+  process.env.CONFIRMED_AUTO_RESOLVE_CHECK_EVERY_MINUTES || '5',
+  10
+);
+const AUTO_RESOLVE_AFTER_MINUTES = parseInt(
+  process.env.CONFIRMED_AUTO_RESOLVE_AFTER_MINUTES || '60',
+  10
+);
 
 // Security middleware
 app.use(helmet());
@@ -121,6 +129,29 @@ const validate = (req, res, next) => {
   }
   next();
 };
+
+async function clearAccidentCaches(includeMapMarkers = false) {
+  try {
+    const patterns = ['accidents:*'];
+    if (includeMapMarkers) {
+      patterns.push('map_markers:*');
+    }
+
+    const keysToDelete = [];
+    for (const pattern of patterns) {
+      const keys = await redis.keys(pattern);
+      if (keys.length > 0) {
+        keysToDelete.push(...keys);
+      }
+    }
+
+    if (keysToDelete.length > 0) {
+      await redis.del(...keysToDelete);
+    }
+  } catch (redisErr) {
+    console.warn('Cache clear failed:', redisErr.message);
+  }
+}
 
 // Socket.IO connection management
 const userSockets = new Map();
@@ -299,15 +330,7 @@ app.post('/accidents',
 
       await client.query('COMMIT');
 
-      // Clear cache
-      try {
-        const keys = await redis.keys('accidents:*');
-        if (keys.length > 0) {
-          await redis.del(...keys);
-        }
-      } catch (redisErr) {
-        console.warn('Cache clear failed:', redisErr.message);
-      }
+      await clearAccidentCaches();
 
       // Notify nearby users
       notifyNearbyUsers(accident, 5000).catch(err => 
@@ -419,15 +442,7 @@ app.put('/accidents/:id/status',
         });
       }
 
-      // Clear cache
-      try {
-        const keys = await redis.keys('accidents:*');
-        if (keys.length > 0) {
-          await redis.del(...keys);
-        }
-      } catch (redisErr) {
-        console.warn('Cache clear failed:', redisErr.message);
-      }
+      await clearAccidentCaches();
 
       res.json({
         success: true,
@@ -551,19 +566,7 @@ app.post('/accidents/:id/notify', async (req, res) => {
       console.error('Notification error:', err);
     });
 
-    // Clear cache
-    try {
-      const keys = await redis.keys('accidents:*');
-      const mapKeys = await redis.keys('map_markers:*');
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
-      if (mapKeys.length > 0) {
-        await redis.del(...mapKeys);
-      }
-    } catch (redisErr) {
-      console.warn('Cache clear failed:', redisErr.message);
-    }
+    await clearAccidentCaches(true);
 
     res.json({
       success: true,
@@ -685,5 +688,87 @@ server.listen(PORT, () => {
   console.log(`Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
   console.log(`Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 });
+
+let autoResolveRunning = false;
+
+async function autoResolveStaleConfirmedAccidents() {
+  if (
+    autoResolveRunning ||
+    AUTO_RESOLVE_CHECK_INTERVAL_MINUTES <= 0 ||
+    AUTO_RESOLVE_AFTER_MINUTES <= 0
+  ) {
+    return;
+  }
+
+  autoResolveRunning = true;
+  try {
+    const result = await pool.query(
+      `
+        WITH false_counts AS (
+          SELECT accident_id, COUNT(*) AS false_report_count
+          FROM false_reports
+          GROUP BY accident_id
+        ),
+        stale_accidents AS (
+          SELECT 
+            a.id,
+            COALESCE(fc.false_report_count, 0) AS false_report_count
+          FROM accidents a
+          LEFT JOIN false_counts fc ON fc.accident_id = a.id
+          WHERE a.status = 'confirmed'
+            AND a.updated_at <= NOW() - ($1 * INTERVAL '1 minute')
+        )
+        UPDATE accidents AS a
+        SET status = CASE
+              WHEN stale_accidents.false_report_count > 0 THEN 'false_alarm'
+              ELSE 'resolved'
+            END,
+            updated_at = NOW()
+        FROM stale_accidents
+        WHERE a.id = stale_accidents.id
+        RETURNING a.id, a.status, stale_accidents.false_report_count
+      `,
+      [AUTO_RESOLVE_AFTER_MINUTES]
+    );
+
+    if (result.rowCount > 0) {
+      const resolvedCount = result.rows.filter(
+        (row) => row.status === 'resolved'
+      ).length;
+      const falseAlarmCount = result.rowCount - resolvedCount;
+
+      console.log(
+        `✅ Auto-resolved ${result.rowCount} accidents ` +
+          `(resolved: ${resolvedCount}, false_alarm: ${falseAlarmCount})`
+      );
+
+      await clearAccidentCaches(true);
+    }
+  } catch (error) {
+    console.error('⚠️ Auto resolve error:', error.message);
+  } finally {
+    autoResolveRunning = false;
+  }
+}
+
+if (
+  AUTO_RESOLVE_CHECK_INTERVAL_MINUTES > 0 &&
+  AUTO_RESOLVE_AFTER_MINUTES > 0
+) {
+  console.log(
+    `⏱️ Auto resolve job enabled: checking every ${AUTO_RESOLVE_CHECK_INTERVAL_MINUTES} min, ` +
+      `resolving confirmed accidents after ${AUTO_RESOLVE_AFTER_MINUTES} min`
+  );
+
+  setInterval(() => {
+    autoResolveStaleConfirmedAccidents().catch((err) =>
+      console.error('Auto resolve interval failed:', err.message)
+    );
+  }, AUTO_RESOLVE_CHECK_INTERVAL_MINUTES * 60 * 1000);
+
+  autoResolveStaleConfirmedAccidents().catch((err) =>
+    console.error('Initial auto resolve run failed:', err.message)
+  );
+}
 
 module.exports = app;

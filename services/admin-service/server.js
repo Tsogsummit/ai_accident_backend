@@ -61,6 +61,7 @@ redis.on('connect', () => console.log('✅ Redis connected'));
 const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
 const BCRYPT_ROUNDS = 12;
 const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http://camera-service:3008';
+const REPORT_SERVICE_URL = process.env.REPORT_SERVICE_URL || 'http://report-service:3007';
 
 // ==========================================
 // MIDDLEWARE
@@ -611,6 +612,57 @@ async function proxyCameraRequest(req, res, method, path, body = null) {
   }
 }
 
+async function proxyReportRequest(method, path, options = {}) {
+  const config = {
+    method,
+    url: `${REPORT_SERVICE_URL}${path}`,
+    timeout: options.timeout || 15000,
+    responseType: options.responseType || 'json',
+  };
+
+  if (options.data) {
+    config.data = options.data;
+    config.headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  }
+
+  if (options.params) {
+    config.params = options.params;
+  }
+
+  try {
+    const response = await axios(config);
+
+    if (config.responseType === 'json') {
+      return { status: response.status, data: response.data, headers: response.headers };
+    }
+
+    return {
+      status: response.status,
+      data: response.data,
+      headers: response.headers
+    };
+  } catch (error) {
+    if (error.response) {
+      throw {
+        status: error.response.status,
+        data: error.response.data
+      };
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      throw {
+        status: 503,
+        data: { success: false, error: 'Тайлангийн сервис ажиллахгүй байна' }
+      };
+    }
+
+    throw {
+      status: 500,
+      data: { success: false, error: 'Тайлангийн сервистэй холбогдоход алдаа гарлаа' }
+    };
+  }
+}
+
 // Camera CRUD endpoints - proxy to camera service
 app.get('/admin/cameras', authenticateAdmin, async (req, res) => {
   const queryString = new URLSearchParams(req.query).toString();
@@ -645,6 +697,76 @@ app.post('/admin/cameras/:id/stop', authenticateAdmin, async (req, res) => {
 
 app.post('/admin/cameras/:id/restart', authenticateAdmin, async (req, res) => {
   await proxyCameraRequest(req, res, 'POST', `/cameras/${req.params.id}/restart`);
+});
+
+// ==========================================
+// REPORTS & ANALYTICS
+// ==========================================
+
+app.get('/admin/reports/statistics', authenticateAdmin, async (req, res) => {
+  try {
+    const query = new URLSearchParams(req.query).toString();
+    const path = query ? `/reports/statistics?${query}` : '/reports/statistics';
+    const result = await proxyReportRequest('GET', path);
+    res.status(result.status).json(result.data);
+  } catch (error) {
+    res.status(error.status || 500).json(error.data || { success: false, error: 'Тайлан авахад алдаа гарлаа' });
+  }
+});
+
+app.get('/admin/reports/user-activity', authenticateAdmin, async (req, res) => {
+  try {
+    const query = new URLSearchParams(req.query).toString();
+    const path = query ? `/reports/user-activity?${query}` : '/reports/user-activity';
+    const result = await proxyReportRequest('GET', path);
+    res.status(result.status).json(result.data);
+  } catch (error) {
+    res.status(error.status || 500).json(error.data || { success: false, error: 'Хэрэглэгчийн идэвх авахад алдаа гарлаа' });
+  }
+});
+
+app.get('/admin/reports/camera-performance', authenticateAdmin, async (req, res) => {
+  try {
+    const query = new URLSearchParams(req.query).toString();
+    const path = query ? `/reports/camera-performance?${query}` : '/reports/camera-performance';
+    const result = await proxyReportRequest('GET', path);
+    res.status(result.status).json(result.data);
+  } catch (error) {
+    res.status(error.status || 500).json(error.data || { success: false, error: 'Камерын тайлан авахад алдаа гарлаа' });
+  }
+});
+
+app.get('/admin/reports/ai-accuracy', authenticateAdmin, async (req, res) => {
+  try {
+    const query = new URLSearchParams(req.query).toString();
+    const path = query ? `/reports/ai-accuracy?${query}` : '/reports/ai-accuracy';
+    const result = await proxyReportRequest('GET', path);
+    res.status(result.status).json(result.data);
+  } catch (error) {
+    res.status(error.status || 500).json(error.data || { success: false, error: 'AI тайлан авахад алдаа гарлаа' });
+  }
+});
+
+app.get('/admin/reports/export', authenticateAdmin, async (req, res) => {
+  try {
+    const query = new URLSearchParams(req.query).toString();
+    const path = query ? `/reports/export?${query}` : '/reports/export';
+    const result = await proxyReportRequest('GET', path, { responseType: 'arraybuffer' });
+
+    if (result.headers['content-type']) {
+      res.setHeader('Content-Type', result.headers['content-type']);
+    } else {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    }
+
+    if (result.headers['content-disposition']) {
+      res.setHeader('Content-Disposition', result.headers['content-disposition']);
+    }
+
+    res.status(result.status).send(result.data);
+  } catch (error) {
+    res.status(error.status || 500).json(error.data || { success: false, error: 'Тайлан татахад алдаа гарлаа' });
+  }
 });
 
 // ==========================================

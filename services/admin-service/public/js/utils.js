@@ -83,7 +83,7 @@ function formatCoordinates(lat, lng) {
 
 function getMapLink(lat, lng) {
   if (!lat || !lng) return '#';
-  return `https://www.google.com/maps?q=${lat},${lng}`;
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}&zoom=17`;
 }
 
 function exportToCSV(data, filename) {

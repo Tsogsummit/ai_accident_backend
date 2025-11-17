@@ -2,7 +2,6 @@
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
-const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3006;
@@ -24,8 +23,7 @@ const redis = new Redis({
   port: process.env.REDIS_PORT || 6379
 });
 
-// Google Maps API Key
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+const mapFeatureDisabledMessage = { error: 'Гадаад газрын зурагны үйлчилгээ идэвхгүй болсон' };
 
 // GET /maps/markers - Газрын зураг дээрх marker-ууд
 app.get('/maps/markers', async (req, res) => {
@@ -138,238 +136,24 @@ app.get('/maps/markers', async (req, res) => {
   }
 });
 
-// GET /maps/geocode - Координатаас хаяг олох
-app.get('/maps/geocode', async (req, res) => {
-  try {
-    const { lat, lng } = req.query;
-
-    if (!lat || !lng) {
-      return res.status(400).json({ error: 'lat болон lng шаардлагатай' });
-    }
-
-    // Cache шалгах
-    const cacheKey = `geocode:${lat}:${lng}`;
-    const cached = await redis.get(cacheKey);
-
-    if (cached) {
-      return res.json({
-        source: 'cache',
-        address: JSON.parse(cached)
-      });
-    }
-
-    if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
-      });
-    }
-
-    // Google Geocoding API дуудах
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/geocode/json',
-      {
-        params: {
-          latlng: `${lat},${lng}`,
-          key: GOOGLE_MAPS_API_KEY,
-          language: 'mn'
-        }
-      }
-    );
-
-    if (response.data.status === 'OK' && response.data.results.length > 0) {
-      const result = response.data.results[0];
-      const addressData = {
-        formattedAddress: result.formatted_address,
-        components: extractAddressComponents(result.address_components)
-      };
-
-      // Redis-д кэшлэх (7 өдөр)
-      await redis.setex(cacheKey, 7 * 24 * 60 * 60, JSON.stringify(addressData));
-
-      res.json({
-        source: 'google',
-        address: addressData
-      });
-    } else {
-      res.status(404).json({ error: 'Хаяг олдсонгүй' });
-    }
-
-  } catch (error) {
-    console.error('Geocode error:', error);
-    res.status(500).json({ error: 'Geocoding алдаа' });
-  }
+// GET /maps/geocode - disabled
+app.get('/maps/geocode', (req, res) => {
+  res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/reverse-geocode - Хаягаас координат олох
-app.get('/maps/reverse-geocode', async (req, res) => {
-  try {
-    const { address } = req.query;
-
-    if (!address) {
-      return res.status(400).json({ error: 'address шаардлагатай' });
-    }
-
-    // Cache шалгах
-    const cacheKey = `reverse_geocode:${address}`;
-    const cached = await redis.get(cacheKey);
-
-    if (cached) {
-      return res.json({
-        source: 'cache',
-        location: JSON.parse(cached)
-      });
-    }
-
-    if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
-      });
-    }
-
-    // Google Geocoding API
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/geocode/json',
-      {
-        params: {
-          address: address,
-          key: GOOGLE_MAPS_API_KEY,
-          language: 'mn'
-        }
-      }
-    );
-
-    if (response.data.status === 'OK' && response.data.results.length > 0) {
-      const result = response.data.results[0];
-      const locationData = {
-        latitude: result.geometry.location.lat,
-        longitude: result.geometry.location.lng,
-        formattedAddress: result.formatted_address
-      };
-
-      // Redis-д кэшлэх (7 өдөр)
-      await redis.setex(cacheKey, 7 * 24 * 60 * 60, JSON.stringify(locationData));
-
-      res.json({
-        source: 'google',
-        location: locationData
-      });
-    } else {
-      res.status(404).json({ error: 'Байршил олдсонгүй' });
-    }
-
-  } catch (error) {
-    console.error('Reverse geocode error:', error);
-    res.status(500).json({ error: 'Reverse geocoding алдаа' });
-  }
+// GET /maps/reverse-geocode - disabled
+app.get('/maps/reverse-geocode', (req, res) => {
+  res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/directions - Зам харуулах
-app.get('/maps/directions', async (req, res) => {
-  try {
-    const { originLat, originLng, destLat, destLng, mode = 'driving' } = req.query;
-
-    if (!originLat || !originLng || !destLat || !destLng) {
-      return res.status(400).json({ 
-        error: 'Origin болон destination coordinates шаардлагатай' 
-      });
-    }
-
-    if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
-      });
-    }
-
-    // Google Directions API
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/directions/json',
-      {
-        params: {
-          origin: `${originLat},${originLng}`,
-          destination: `${destLat},${destLng}`,
-          mode: mode,
-          key: GOOGLE_MAPS_API_KEY,
-          language: 'mn'
-        }
-      }
-    );
-
-    if (response.data.status === 'OK' && response.data.routes.length > 0) {
-      const route = response.data.routes[0];
-      const leg = route.legs[0];
-
-      res.json({
-        distance: leg.distance.text,
-        duration: leg.duration.text,
-        startAddress: leg.start_address,
-        endAddress: leg.end_address,
-        steps: leg.steps.map(step => ({
-          instruction: step.html_instructions.replace(/<[^>]*>/g, ''),
-          distance: step.distance.text,
-          duration: step.duration.text
-        })),
-        polyline: route.overview_polyline.points
-      });
-    } else {
-      res.status(404).json({ error: 'Зам олдсонгүй' });
-    }
-
-  } catch (error) {
-    console.error('Directions error:', error);
-    res.status(500).json({ error: 'Directions API алдаа' });
-  }
+// GET /maps/directions - disabled
+app.get('/maps/directions', (req, res) => {
+  res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/nearby-places - Ойролцоох газрууд (эмнэлэг, цагдаа гэх мэт)
-app.get('/maps/nearby-places', async (req, res) => {
-  try {
-    const { lat, lng, type = 'hospital', radius = 5000 } = req.query;
-
-    if (!lat || !lng) {
-      return res.status(400).json({ error: 'lat болон lng шаардлагатай' });
-    }
-
-    if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
-      });
-    }
-
-    // Google Places API
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/place/nearbysearch/json',
-      {
-        params: {
-          location: `${lat},${lng}`,
-          radius: radius,
-          type: type,
-          key: GOOGLE_MAPS_API_KEY,
-          language: 'mn'
-        }
-      }
-    );
-
-    if (response.data.status === 'OK') {
-      const places = response.data.results.map(place => ({
-        name: place.name,
-        address: place.vicinity,
-        location: {
-          lat: place.geometry.location.lat,
-          lng: place.geometry.location.lng
-        },
-        rating: place.rating,
-        isOpen: place.opening_hours?.open_now
-      }));
-
-      res.json({ places });
-    } else {
-      res.json({ places: [] });
-    }
-
-  } catch (error) {
-    console.error('Nearby places error:', error);
-    res.status(500).json({ error: 'Places API алдаа' });
-  }
+// GET /maps/nearby-places - disabled
+app.get('/maps/nearby-places', (req, res) => {
+  res.status(410).json(mapFeatureDisabledMessage);
 });
 
 // GET /maps/heatmap - Ослын heatmap өгөгдөл
@@ -420,30 +204,6 @@ function getMarkerTitle(severity, status) {
   return `${severityText[severity] || severity} - ${statusText[status] || status}`;
 }
 
-function extractAddressComponents(components) {
-  const extracted = {};
-  
-  components.forEach(component => {
-    if (component.types.includes('street_number')) {
-      extracted.streetNumber = component.long_name;
-    }
-    if (component.types.includes('route')) {
-      extracted.street = component.long_name;
-    }
-    if (component.types.includes('locality')) {
-      extracted.city = component.long_name;
-    }
-    if (component.types.includes('administrative_area_level_1')) {
-      extracted.district = component.long_name;
-    }
-    if (component.types.includes('country')) {
-      extracted.country = component.long_name;
-    }
-  });
-
-  return extracted;
-}
-
 function getSeverityWeight(severity) {
   const weights = {
     'minor': 1,
@@ -458,14 +218,12 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'map-service',
-    googleMapsConfigured: !!GOOGLE_MAPS_API_KEY,
     timestamp: new Date().toISOString()
   });
 });
 
 app.listen(PORT, () => {
   console.log(`🗺️  Map Service запущен на порту ${PORT}`);
-  console.log(`📍 Google Maps API: ${GOOGLE_MAPS_API_KEY ? 'настроен' : 'не настроен'}`);
 });
 
 module.exports = app;
