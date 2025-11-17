@@ -133,12 +133,14 @@ app.post('/false-reports', async (req, res) => {
     const falseReportCount = parseInt(countResult.rows[0].count);
 
     // 3+ false report бол accident-ын статус false_alarm болгох
+    let statusChanged = false;
     if (falseReportCount >= 3) {
       await client.query(`
         UPDATE accidents 
         SET status = 'false_alarm', updated_at = NOW()
         WHERE id = $1
       `, [accidentId]);
+      statusChanged = true;
     }
 
     await client.query('COMMIT');
@@ -149,11 +151,65 @@ app.post('/false-reports', async (req, res) => {
       await redis.del(...keys);
     }
 
+    // If status changed to false_alarm, notify users
+    if (statusChanged) {
+      try {
+        // Get accident details for notification
+        const accidentResult = await pool.query(
+          'SELECT * FROM accidents WHERE id = $1',
+          [accidentId]
+        );
+        
+        if (accidentResult.rows.length > 0) {
+          const accident = accidentResult.rows[0];
+          
+          // Get all users who were notified about this accident
+          const notifiedUsersResult = await pool.query(`
+            SELECT DISTINCT user_id 
+            FROM notifications 
+            WHERE accident_id = $1 AND type = 'accident_confirmed'
+          `, [accidentId]);
+          
+          const userIds = notifiedUsersResult.rows.map(row => row.user_id);
+          
+          if (userIds.length > 0) {
+            // Notify via notification service
+            const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005';
+            const axios = require('axios');
+            
+            await axios.post(
+              `${notificationServiceUrl}/notifications/send`,
+              {
+                userIds: userIds,
+                accidentId: accidentId,
+                type: 'false_alarm',
+                title: '⚠️ Буруу мэдээлэл баталгаажлаа',
+                message: `Осол #${accidentId} буруу мэдээлэл гэж баталгаажлаа. 3+ хэрэглэгч буруу мэдээлэл гэж мэдэгдсэн.`,
+                data: {
+                  latitude: String(accident.latitude),
+                  longitude: String(accident.longitude),
+                  accidentId: String(accidentId),
+                  status: 'false_alarm'
+                }
+              },
+              { timeout: 10000 }
+            );
+            
+            console.log(`✅ False alarm notification sent to ${userIds.length} users`);
+          }
+        }
+      } catch (notifyErr) {
+        console.error('⚠️ Failed to send false alarm notification:', notifyErr.message);
+        // Don't fail the whole process if notification fails
+      }
+    }
+
     res.status(201).json({
       success: true,
       message: 'Буруу мэдээлэл бүртгэгдлээ',
       data: report,
-      falseReportCount
+      falseReportCount,
+      statusChanged: statusChanged
     });
 
   } catch (error) {
