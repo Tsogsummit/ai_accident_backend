@@ -1,4 +1,4 @@
-// services/hlsStreamProcessor.js - HLS Stream Processor for UB Traffic cameras
+
 const axios = require('axios');
 const { Parser } = require('m3u8-parser');
 const ffmpeg = require('fluent-ffmpeg');
@@ -35,7 +35,7 @@ class HLSStreamProcessor {
 
       const manifest = parser.manifest;
 
-      // Get the first stream variant (or you can choose based on bandwidth/resolution)
+      
       if (manifest.playlists && manifest.playlists.length > 0) {
         const chunklistUri = manifest.playlists[0].uri;
         const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/'));
@@ -47,7 +47,7 @@ class HLSStreamProcessor {
         return chunklistUrl;
       }
 
-      // If no playlists, assume this IS the chunklist
+      
       return playlistUrl;
     } catch (error) {
       logger.error(`Error fetching master playlist: ${error.message}`);
@@ -76,7 +76,7 @@ class HLSStreamProcessor {
         throw new Error('No segments found in chunklist');
       }
 
-      // Get the last 'count' segments (most recent)
+      
       const segments = manifest.segments.slice(-count);
       const segmentUrls = segments.map(segment => {
         const uri = segment.uri;
@@ -123,7 +123,7 @@ class HLSStreamProcessor {
         localPaths.push(localPath);
       } catch (error) {
         logger.error(`Failed to download segment ${i}: ${error.message}`);
-        // Continue with other segments
+        
       }
     }
 
@@ -145,7 +145,7 @@ class HLSStreamProcessor {
 
       logger.info(`Concatenating ${segmentPaths.length} segments into ${outputPath}`);
 
-      // Create concat file list for ffmpeg
+      
       const concatFile = outputPath.replace('.mp4', '_concat.txt');
       const concatContent = segmentPaths
         .map(p => `file '${p.replace(/\\/g, '/')}'`)
@@ -156,8 +156,8 @@ class HLSStreamProcessor {
         .input(concatFile)
         .inputOptions(['-f concat', '-safe 0'])
         .outputOptions([
-          '-c copy',  // Copy codec (fast, no re-encoding)
-          '-bsf:a aac_adtstoasc'  // Fix AAC audio
+          '-c copy',  
+          '-bsf:a aac_adtstoasc'  
         ])
         .output(outputPath)
         .on('start', (commandLine) => {
@@ -168,7 +168,7 @@ class HLSStreamProcessor {
         })
         .on('end', () => {
           logger.info(`✅ Video created: ${outputPath}`);
-          // Clean up concat file
+          
           fs.unlinkSync(concatFile);
           resolve(outputPath);
         })
@@ -208,35 +208,35 @@ class HLSStreamProcessor {
       logger.info(`📹 Processing HLS stream for camera ${cameraId}`);
       logger.info(`Target duration: ${durationSeconds} seconds (${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s)`);
 
-      // Step 1: Get chunklist URL from master playlist
+      
       const chunklistUrl = await this.getMasterPlaylist(playlistUrl);
 
-      // Step 2: Calculate number of segments needed
-      // Each segment is typically 10 seconds
+      
+      
       const segmentDuration = 10;
       const segmentCount = Math.ceil(durationSeconds / segmentDuration);
 
       logger.info(`Fetching ${segmentCount} segments (${segmentDuration}s each)`);
 
-      // Step 3: Get media segment URLs
+      
       const segmentUrls = await this.getMediaSegments(chunklistUrl, segmentCount);
 
-      // Step 4: Download segments
+      
       const { directory, segments } = await this.downloadSegments(segmentUrls, cameraId);
 
       if (segments.length === 0) {
         throw new Error('No segments were downloaded');
       }
 
-      // Step 5: Concatenate segments into single video
+      
       const timestamp = Date.now();
       const outputPath = path.join(directory, `camera_${cameraId}_${timestamp}.mp4`);
       await this.concatenateSegments(segments, outputPath);
 
-      // Step 6: Get actual video duration
+      
       const actualDuration = await this.getVideoDuration(outputPath);
 
-      // Step 7: Clean up individual segment files
+      
       logger.info('Cleaning up segment files...');
       for (const segmentPath of segments) {
         try {

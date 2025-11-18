@@ -1,4 +1,4 @@
-// Accident service
+
 
 const express = require('express');
 const { Pool } = require('pg');
@@ -29,11 +29,11 @@ const AUTO_RESOLVE_AFTER_MINUTES = parseInt(
   10
 );
 
-// Security middleware
+
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// User-based rate limiting
+
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -48,7 +48,7 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// PostgreSQL database connection pool
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -68,7 +68,7 @@ pool.on('connect', () => {
   console.log('✅ PostgreSQL connected');
 });
 
-// Redis client for caching and location storage
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -94,7 +94,7 @@ redis.on('connect', () => {
   console.log('✅ Redis connected');
 });
 
-// JWT Authentication Middleware
+
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -118,7 +118,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Validation error handling middleware
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -153,7 +153,7 @@ async function clearAccidentCaches(includeMapMarkers = false) {
   }
 }
 
-// Socket.IO connection management
+
 const userSockets = new Map();
 
 io.on('connection', (socket) => {
@@ -187,7 +187,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// ACCIDENTS API
+
 
 app.get('/accidents', 
   authenticateToken,
@@ -201,10 +201,10 @@ app.get('/accidents',
     try {
       const { status, limit = 100, offset = 0 } = req.query;
 
-      // Cache key
+      
       const cacheKey = `accidents:${status || 'all'}:${limit}:${offset}`;
       
-      // Check cache
+      
       try {
         const cached = await redis.get(cacheKey);
         if (cached) {
@@ -218,7 +218,7 @@ app.get('/accidents',
         console.warn('Redis cache read failed:', redisErr.message);
       }
 
-      // Get current user ID from JWT token
+      
       const currentUserId = req.user?.userId;
 
       let queryText = `
@@ -242,8 +242,8 @@ app.get('/accidents',
         WHERE 1=1
       `;
       
-      const params = [currentUserId]; // ✅ First param is current user ID
-      let paramIndex = 2; // ✅ Start from $2 for other params
+      const params = [currentUserId]; 
+      let paramIndex = 2; 
 
       if (status) {
         queryText += ` AND a.status = $${paramIndex++}`;
@@ -260,7 +260,7 @@ app.get('/accidents',
 
       const result = await pool.query(queryText, params);
 
-      // Store in cache
+      
       try {
         await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
       } catch (redisErr) {
@@ -322,7 +322,7 @@ app.post('/accidents',
 
       const accident = accidentResult.rows[0];
 
-      // Store location
+      
       await client.query(`
         INSERT INTO locations (user_id, latitude, longitude, timestamp)
         VALUES ($1, $2, $3, NOW())
@@ -332,7 +332,7 @@ app.post('/accidents',
 
       await clearAccidentCaches();
 
-      // Notify nearby users
+      
       notifyNearbyUsers(accident, 5000).catch(err => 
         console.error('Notification error:', err)
       );
@@ -370,7 +370,7 @@ app.get('/accidents/:id',
         });
       }
 
-      // Get current user ID from JWT token
+      
       const currentUserId = req.user?.userId;
 
       const result = await pool.query(`
@@ -460,7 +460,7 @@ app.put('/accidents/:id/status',
   }
 );
 
-// Notify nearby users about new accident
+
 
 async function notifyNearbyUsers(accident, radiusMeters) {
   try {
@@ -489,7 +489,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
       }
     }
 
-    // Send notifications via Socket.IO
+    
     for (const userId of nearbyUsers) {
       const socketId = userSockets.get(userId);
       if (socketId) {
@@ -503,10 +503,10 @@ async function notifyNearbyUsers(accident, radiusMeters) {
       }
     }
 
-    // Also send push notifications via notification service
+    
     if (nearbyUsers.length > 0) {
       try {
-        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
+        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http:
         const axios = require('axios');
         
         await axios.post(
@@ -529,7 +529,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
         console.log(`✅ Push notifications sent via notification service`);
       } catch (notifyErr) {
         console.error('⚠️ Failed to send push notifications:', notifyErr.message);
-        // Don't fail the whole process if push notifications fail
+        
       }
     }
 
@@ -541,13 +541,13 @@ async function notifyNearbyUsers(accident, radiusMeters) {
   }
 }
 
-// POST /accidents/:id/notify - Notify nearby users about an accident (can be called by AI service)
+
 app.post('/accidents/:id/notify', async (req, res) => {
   try {
     const { id } = req.params;
     const { radiusMeters = 5000 } = req.body;
 
-    // Get accident details
+    
     const result = await pool.query(`
       SELECT * FROM accidents WHERE id = $1
     `, [id]);
@@ -561,7 +561,7 @@ app.post('/accidents/:id/notify', async (req, res) => {
 
     const accident = result.rows[0];
 
-    // Notify nearby users (async, don't wait)
+    
     notifyNearbyUsers(accident, radiusMeters).catch(err => {
       console.error('Notification error:', err);
     });
@@ -583,9 +583,9 @@ app.post('/accidents/:id/notify', async (req, res) => {
   }
 });
 
-// Haversine formula
+
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Earth radius in meter
+  const R = 6371e3; 
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -609,7 +609,7 @@ app.get('/health', async (req, res) => {
 
   let hasError = false;
 
-  // Check database
+  
   try {
     await pool.query('SELECT 1');
     health.database = 'connected';
@@ -620,7 +620,7 @@ app.get('/health', async (req, res) => {
     hasError = true;
   }
 
-  // Check Redis
+  
   try {
     await redis.ping();
     health.redis = 'connected';
@@ -631,7 +631,7 @@ app.get('/health', async (req, res) => {
     hasError = true;
   }
 
-  // Socket.IO status
+  
   health.socketio = {
     connected: io.engine.clientsCount,
     registered: userSockets.size
@@ -641,7 +641,7 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
-// Error handling middleware
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -652,21 +652,21 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Graceful shutdown
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   
-  // Close server
+  
   server.close(() => {
     console.log('HTTP server closed');
   });
   
-  // Close Socket.IO connections
+  
   io.close(() => {
     console.log('Socket.IO closed');
   });
   
-  // Close database and Redis
+  
   await pool.end();
   await redis.quit();
   

@@ -1,11 +1,11 @@
-// shared/database/index.js
-// PostgreSQL холболт ба нийтлэг queries
+
+
 
 const { Pool } = require('pg');
 const config = require('../config');
 const { logError, logInfo } = require('../utils');
 
-// Connection pool
+
 let pool = null;
 
 /**
@@ -27,12 +27,12 @@ function createPool() {
     connectionTimeoutMillis: config.database.connectionTimeout,
   });
 
-  // Connection error handler
+  
   pool.on('error', (err) => {
     logError(err, { context: 'PostgreSQL pool error' });
   });
 
-  // Connection handler
+  
   pool.on('connect', () => {
     logInfo('PostgreSQL холболт үүслээ');
   });
@@ -84,7 +84,7 @@ async function withTransaction(callback) {
  * Нийтлэг queries
  */
 const queries = {
-  // Users
+  
   users: {
     findById: 'SELECT * FROM users WHERE id = $1',
     findByPhone: 'SELECT * FROM users WHERE phone = $1',
@@ -105,7 +105,7 @@ const queries = {
     delete: 'DELETE FROM users WHERE id = $1',
   },
 
-  // Accidents
+  
   accidents: {
     findAll: `
       SELECT a.*, u.name as reported_by_name, c.name as camera_name
@@ -161,7 +161,7 @@ const queries = {
     `,
   },
 
-  // Videos
+  
   videos: {
     findById: 'SELECT * FROM videos WHERE id = $1',
     findByUserId: `
@@ -189,7 +189,7 @@ const queries = {
     delete: 'DELETE FROM videos WHERE id = $1',
   },
 
-  // AI Detections
+  
   aiDetections: {
     findByVideoId: 'SELECT * FROM ai_detections WHERE video_id = $1',
     create: `
@@ -207,7 +207,7 @@ const queries = {
     `,
   },
 
-  // Cameras
+  
   cameras: {
     findAll: 'SELECT * FROM cameras ORDER BY created_at DESC',
     findById: 'SELECT * FROM cameras WHERE id = $1',
@@ -229,7 +229,7 @@ const queries = {
     delete: 'DELETE FROM cameras WHERE id = $1',
   },
 
-  // Notifications
+  
   notifications: {
     findByUserId: `
       SELECT * FROM notifications 
@@ -263,7 +263,7 @@ const queries = {
     delete: 'DELETE FROM notifications WHERE id = $1',
   },
 
-  // False Reports
+  
   falseReports: {
     findByAccidentId: `
       SELECT fr.*, u.name as reporter_name, rr.name as reason_name
@@ -287,7 +287,7 @@ const queries = {
     `,
   },
 
-  // Statistics
+  
   statistics: {
     accidentsByDate: `
       SELECT DATE(timestamp) as date, COUNT(*) as count
@@ -346,12 +346,12 @@ async function query(text, params = []) {
 async function paginatedQuery(baseQuery, params, page = 1, limit = 50) {
   const offset = (page - 1) * limit;
   
-  // Count total
+  
   const countQuery = `SELECT COUNT(*) FROM (${baseQuery}) as count_query`;
   const countResult = await query(countQuery, params);
   const total = parseInt(countResult.rows[0].count);
   
-  // Get data
+  
   const dataQuery = `${baseQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   const dataResult = await query(dataQuery, [...params, limit, offset]);
   

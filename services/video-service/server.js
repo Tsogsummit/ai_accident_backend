@@ -1,4 +1,4 @@
-// services/video-service/server.js - FIXED VERSION
+
 const express = require('express');
 const multer = require('multer');
 const { Pool } = require('pg');
@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3003;
 
 app.use(express.json());
 
-// CORS
+
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -22,7 +22,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// PostgreSQL
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -31,11 +31,11 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || 'postgres'
 });
 
-// Multer setup - бичлэг түр хадгалах
+
 const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
+    fileSize: 100 * 1024 * 1024, 
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
@@ -47,7 +47,7 @@ const upload = multer({
   }
 });
 
-// ✅✅✅ FIXED: POST /upload - Simplified workflow
+
 app.post('/upload', upload.single('video'), async (req, res) => {
   const client = await pool.connect();
   
@@ -59,7 +59,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     console.log('   latitude:', latitude);
     console.log('   longitude:', longitude);
     
-    // Validation
+    
     if (!req.file) {
       return res.status(400).json({ 
         success: false,
@@ -83,7 +83,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
     await client.query('BEGIN');
 
-    // ✅ STEP 1: Create accident FIRST
+    
     const accidentResult = await client.query(`
       INSERT INTO accidents (
         user_id, latitude, longitude, description, 
@@ -103,7 +103,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     const accident = accidentResult.rows[0];
     console.log(`✅ Accident created: ID=${accident.id}`);
 
-    // ✅ STEP 2: Create video with accident_id
+    
     const videoResult = await client.query(`
       INSERT INTO videos (
         user_id, accident_id, file_name, file_path, file_size, 
@@ -113,7 +113,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
       RETURNING *
     `, [
       userId,
-      accident.id, // ✅ Link to accident
+      accident.id, 
       file.originalname,
       filePath,
       file.size,
@@ -124,7 +124,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     const video = videoResult.rows[0];
     console.log(`✅ Video created: ID=${video.id}`);
 
-    // ✅ STEP 3: Update accident with video_id
+    
     await client.query(`
       UPDATE accidents 
       SET video_id = $1
@@ -133,24 +133,24 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
     console.log(`✅ Accident-Video linked: A-${accident.id} ↔ V-${video.id}`);
 
-    // ✅ STEP 4: Move file from temp to uploads folder
+    
     const finalPath = path.join(__dirname, 'uploads', fileName);
     await fs.rename(file.path, finalPath);
     console.log(`✅ File saved: ${finalPath}`);
 
     await client.query('COMMIT');
 
-    // ✅ STEP 5: Trigger AI detection (async, don't wait)
-    // Pass relative file path (filename only) since volumes are shared
-    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
-    const relativeFilePath = fileName; // Just the filename, AI service will find it in /app/uploads
+    
+    
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http:
+    const relativeFilePath = fileName; 
     triggerAIDetection(video.id, userId, relativeFilePath, parseFloat(latitude), parseFloat(longitude), description || 'Камераас бичигдсэн осол')
       .catch(err => {
         console.error('⚠️ Failed to trigger AI detection:', err.message);
-        // Don't fail the upload if AI service is unavailable
+        
       });
 
-    // ✅ SUCCESS RESPONSE
+    
     res.status(200).json({
       success: true,
       message: 'Видео амжилттай илгээгдлээ. AI шалгалт эхэллээ.',
@@ -171,7 +171,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     await client.query('ROLLBACK');
     console.error('❌ Video upload error:', error);
     
-    // Cleanup temp file
+    
     if (req.file) {
       try {
         await fs.unlink(req.file.path);
@@ -189,7 +189,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
   }
 });
 
-// GET /videos/:id/status - Video status шалгах (with AI detection results)
+
 app.get('/videos/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
@@ -220,7 +220,7 @@ app.get('/videos/:id/status', async (req, res) => {
 
     const video = result.rows[0];
     
-    // Parse AI detection results if available
+    
     let aiDetection = null;
     if (video.ai_detected_objects) {
       try {
@@ -250,7 +250,7 @@ app.get('/videos/:id/status', async (req, res) => {
       }
     }
     
-    // Determine AI processing status
+    
     let aiProcessingStatus = 'pending';
     if (video.status === 'processing') {
       aiProcessingStatus = 'processing';
@@ -288,7 +288,7 @@ app.get('/videos/:id/status', async (req, res) => {
   }
 });
 
-// GET /videos - List videos
+
 app.get('/videos', async (req, res) => {
   try {
     const { limit = 50, offset = 0, status } = req.query;
@@ -329,7 +329,7 @@ app.get('/videos', async (req, res) => {
   }
 });
 
-// DELETE /videos/:id - Delete video
+
 app.delete('/videos/:id', async (req, res) => {
   const client = await pool.connect();
   
@@ -359,14 +359,14 @@ app.delete('/videos/:id', async (req, res) => {
       });
     }
 
-    // Delete video file
+    
     try {
       await fs.unlink(path.join(__dirname, video.file_path));
     } catch (e) {
       console.warn('File already deleted or not found:', e.message);
     }
 
-    // Delete from database
+    
     await client.query(`DELETE FROM videos WHERE id = $1`, [id]);
 
     await client.query('COMMIT');
@@ -388,9 +388,9 @@ app.delete('/videos/:id', async (req, res) => {
   }
 });
 
-// Function to trigger AI detection
+
 async function triggerAIDetection(videoId, userId, filePath, latitude, longitude, description) {
-  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
+  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http:
   
   try {
     console.log(`🤖 Triggering AI detection for video ${videoId}`);
@@ -403,7 +403,7 @@ async function triggerAIDetection(videoId, userId, filePath, latitude, longitude
       longitude: longitude,
       description: description
     }, {
-      timeout: 5000 // 5 second timeout for initial request
+      timeout: 5000 
     });
     
     console.log(`✅ AI detection triggered: videoId=${videoId}, status=${response.data.status}`);
@@ -412,7 +412,7 @@ async function triggerAIDetection(videoId, userId, filePath, latitude, longitude
   } catch (error) {
     console.error(`❌ AI detection trigger error for video ${videoId}:`, error.message);
     
-    // Update video status to indicate AI service unavailable
+    
     try {
       const client = await pool.connect();
       await client.query(`
@@ -430,7 +430,7 @@ async function triggerAIDetection(videoId, userId, filePath, latitude, longitude
   }
 }
 
-// POST /videos/:id/retry-ai - Retry AI detection for a video
+
 app.post('/videos/:id/retry-ai', async (req, res) => {
   try {
     const { id } = req.params;
@@ -454,7 +454,7 @@ app.post('/videos/:id/retry-ai', async (req, res) => {
     
     console.log(`🔄 Retrying AI detection for video ${id}`);
     
-    // Trigger AI detection
+    
     try {
       await triggerAIDetection(
         video.id,
@@ -486,7 +486,7 @@ app.post('/videos/:id/retry-ai', async (req, res) => {
   }
 });
 
-// Health check
+
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy',
@@ -495,7 +495,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Create uploads directory if it doesn't exist
+
 const uploadsDir = path.join(__dirname, 'uploads');
 fs.mkdir(uploadsDir, { recursive: true }).catch(console.error);
 

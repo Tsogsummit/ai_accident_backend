@@ -474,7 +474,7 @@ class OptimizedVehicleTracker:
         return stats
 
 
-# FastAPI Models
+
 class VideoDetectionRequest(BaseModel):
     videoId: int
     userId: int
@@ -487,11 +487,11 @@ class ImageDetectionRequest(BaseModel):
     cameraId: int
     frameId: int
     timestamp: str
-    image: str  # base64 encoded
+    image: str  
     metadata: Optional[Dict] = None
 
 
-# FastAPI app
+
 app = FastAPI(title="AI Detection - Optimized", version="2.1.0")
 
 app.add_middleware(
@@ -603,13 +603,13 @@ def notify_users_about_accident(accident_id: int, latitude: float, longitude: fl
     This uses the accident service's existing notifyNearbyUsers function
     """
     try:
-        # Call accident service endpoint to notify nearby users
+        
         accident_service_url = os.getenv('ACCIDENT_SERVICE_URL', 'http://accident-service:3002')
         
         response = requests.post(
             f"{accident_service_url}/accidents/{accident_id}/notify",
             json={
-                'radiusMeters': 5000  # 5km radius
+                'radiusMeters': 5000  
             },
             timeout=10
         )
@@ -632,7 +632,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
     try:
         logger.info(f"🎬 Starting video processing: videoId={request.videoId}, filePath={request.filePath}")
         
-        # If video_path is None or empty, try to find it
+        
         if not video_path or not os.path.exists(video_path):
             logger.warning(f"Video path not provided or doesn't exist, searching...")
             original_path = request.filePath
@@ -656,7 +656,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
         
-        # Extract frames and detect accidents
+        
         logger.info(f"📹 Extracting frames from: {video_path}")
         frames = extract_frames(video_path, config.FRAME_INTERVAL, config.MAX_FRAMES)
         
@@ -666,7 +666,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
         
         logger.info(f"📊 Extracted {len(frames)} frames, running detection...")
         
-        # Run accident detection
+        
         detection_result = detect_accident(frames, config.MODEL_CONFIDENCE)
         
         has_accident = detection_result['hasAccident']
@@ -674,8 +674,8 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
         
         logger.info(f"🔍 Detection result: hasAccident={has_accident}, confidence={confidence:.2%}")
         
-        # Prepare detected objects JSON - ensure all values are JSON serializable
-        # Convert numpy types and other non-serializable types to native Python types
+        
+        
         def make_serializable(obj):
             """Convert numpy types and other non-serializable types to native Python types"""
             if isinstance(obj, (np.integer, np.int64, np.int32)):
@@ -696,7 +696,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                 return obj
         
         detected_objects_data = {
-            'hasAccident': bool(has_accident),  # Ensure it's a Python bool
+            'hasAccident': bool(has_accident),  
             'confidence': float(confidence),
             'totalFrames': int(detection_result.get('totalFrames', 0)),
             'confirmedTracks': int(detection_result.get('confirmedTracks', 0)) if detection_result.get('confirmedTracks') is not None else 0,
@@ -707,7 +707,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
         
         detected_objects_json = json.dumps(detected_objects_data)
         
-        # Connect to database (use autocommit=False so we can rollback on errors)
+        
         db_conn = psycopg2.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             port=os.getenv('DB_PORT', '5432'),
@@ -715,12 +715,12 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             user=os.getenv('DB_USER', 'postgres'),
             password=os.getenv('DB_PASSWORD', 'postgres')
         )
-        db_conn.autocommit = False  # Enable manual transaction control
+        db_conn.autocommit = False  
         
         try:
             cursor = db_conn.cursor()
             
-            # Update video status
+            
             video_status = 'completed'
             cursor.execute("""
                 UPDATE videos 
@@ -729,15 +729,15 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                 WHERE id = %s
             """, (video_status, request.videoId))
             
-            # Check if AI detection record already exists
+            
             cursor.execute("SELECT id FROM ai_detections WHERE video_id = %s", (request.videoId,))
             existing = cursor.fetchone()
             
-            # Insert or update AI detection result
-            # Try with processed_at first
+            
+            
             try:
                 if existing:
-                    # Update existing record
+                    
                     cursor.execute("""
                         UPDATE ai_detections 
                         SET confidence = %s,
@@ -747,7 +747,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                         WHERE video_id = %s
                     """, (float(confidence), detected_objects_json, 'completed', request.videoId))
                 else:
-                    # Insert new record
+                    
                     cursor.execute("""
                         INSERT INTO ai_detections (
                             video_id, confidence, detected_objects, status, processed_at
@@ -755,7 +755,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                         VALUES (%s, %s, %s, %s, NOW())
                     """, (request.videoId, float(confidence), detected_objects_json, 'completed'))
             except psycopg2.errors.UndefinedColumn:
-                # If processed_at doesn't exist, try without it
+                
                 if existing:
                     cursor.execute("""
                         UPDATE ai_detections 
@@ -772,12 +772,12 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                         VALUES (%s, %s, %s, %s)
                     """, (request.videoId, float(confidence), detected_objects_json, 'completed'))
             
-            # Update accident status based on AI detection
-            # Don't try to update ai_verified/ai_confidence columns (they may not exist)
-            # Just update the status based on AI detection
+            
+            
+            
             accident_updated = False
             if has_accident:
-                # AI confirmed accident - update status to 'confirmed'
+                
                 cursor.execute("""
                     UPDATE accidents 
                     SET status = CASE 
@@ -795,22 +795,22 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                     accident_lon = float(accident_result[2])
                     accident_desc = accident_result[3] or 'AI-аар баталгаажсан осол'
             else:
-                # AI did not detect accident - mark as 'false_alarm' if confidence is low
-                if confidence < 0.3:  # Low confidence means likely not an accident
+                
+                if confidence < 0.3:  
                     cursor.execute("""
                         UPDATE accidents 
                         SET status = 'false_alarm'
                         WHERE video_id = %s AND status = 'reported'
                     """, (request.videoId,))
-                # Otherwise keep status as 'reported' (medium confidence - uncertain)
+                
             
-            # Commit all changes
+            
             db_conn.commit()
             cursor.close()
             
             logger.info(f"✅ Video processing completed: videoId={request.videoId}, hasAccident={has_accident}, confidence={confidence:.2%}")
             
-            # If accident was confirmed, notify nearby users and update map
+            
             if accident_updated and has_accident:
                 logger.info(f"🔔 Accident confirmed! Notifying nearby users and updating map...")
                 try:
@@ -823,20 +823,20 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                     )
                 except Exception as notify_err:
                     logger.error(f"⚠️ Failed to send notifications: {notify_err}", exc_info=True)
-                    # Don't fail the whole process if notifications fail
+                    
             
         except Exception as db_error:
-            # Rollback transaction on any database error
+            
             try:
                 db_conn.rollback()
                 logger.info(f"✅ Rolled back transaction for video {request.videoId}")
             except:
                 pass
             
-            # Re-raise the error to be caught by outer exception handler
+            
             raise db_error
         finally:
-            # Always close the connection
+            
             try:
                 db_conn.close()
             except:
@@ -848,7 +848,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
         import traceback
         logger.error(f"Full traceback:\n{traceback.format_exc()}")
         
-        # Rollback any failed transaction first
+        
         if db_conn:
             try:
                 db_conn.rollback()
@@ -856,7 +856,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             except:
                 pass
         
-        # Update video status to failed in a new connection/transaction
+        
         try:
             if db_conn is None:
                 db_conn = psycopg2.connect(
@@ -867,7 +867,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                     password=os.getenv('DB_PASSWORD', 'postgres')
                 )
             else:
-                # Close old connection and create new one for clean transaction
+                
                 try:
                     db_conn.close()
                 except:
@@ -928,17 +928,17 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
     try:
         logger.info(f"📹 Processing video detection: videoId={request.videoId}, filePath={request.filePath}")
         
-        # Check if file exists (relative to uploads directory or absolute path)
+        
         original_path = request.filePath
         paths_to_try = [
-            original_path,  # Original path as-is
-            os.path.join('/app', 'uploads', os.path.basename(original_path)),  # Shared volume path
-            os.path.join('/app/uploads', original_path),  # Alternative shared volume path
-            os.path.join('/app/uploads', os.path.basename(original_path)),  # Just filename in uploads
-            os.path.join('/app', 'uploads', original_path),  # Another variant
+            original_path,  
+            os.path.join('/app', 'uploads', os.path.basename(original_path)),  
+            os.path.join('/app/uploads', original_path),  
+            os.path.join('/app/uploads', os.path.basename(original_path)),  
+            os.path.join('/app', 'uploads', original_path),  
         ]
         
-        # Try to find the file
+        
         video_path = None
         found_paths = []
         for test_path in paths_to_try:
@@ -955,18 +955,18 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
             if os.path.exists('/app/uploads'):
                 try:
                     files = os.listdir('/app/uploads')
-                    logger.error(f"   Files in /app/uploads: {files[:10]}")  # First 10 files
+                    logger.error(f"   Files in /app/uploads: {files[:10]}")  
                 except:
                     pass
-            # Don't raise error here, let background task handle it with better error message
-            video_path = None  # Will be handled in background task
+            
+            video_path = None  
         
         if video_path:
             logger.info(f"✅ Found video at: {video_path}")
         else:
             logger.warning(f"⚠️ Video path not found, will try in background task")
         
-        # Update video status to processing in database
+        
         try:
             conn = psycopg2.connect(
                 host=os.getenv('DB_HOST', 'localhost'),
@@ -977,7 +977,7 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
             )
             cursor = conn.cursor()
             
-            # Update video status to processing
+            
             cursor.execute("""
                 UPDATE videos 
                 SET status = 'processing', processing_started_at = NOW()
@@ -989,7 +989,7 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
         except Exception as db_error:
             logger.warning(f"Failed to update video status in DB: {db_error}")
         
-        # Process video in background
+        
         background_tasks.add_task(process_video_detection, request, video_path)
         
         return {
@@ -1015,14 +1015,14 @@ async def detect_image_endpoint(request: ImageDetectionRequest):
     try:
         logger.info(f"🖼️ Processing image detection: cameraId={request.cameraId}, frameId={request.frameId}")
         
-        # Decode base64 image
+        
         image_data = base64.b64decode(request.image)
         image = Image.open(BytesIO(image_data))
         
-        # Convert PIL to numpy array for YOLO
+        
         image_np = np.array(image)
         
-        # Run YOLO detection
+        
         results = model(image_np, conf=config.MODEL_CONFIDENCE, verbose=False)
         
         predictions = []

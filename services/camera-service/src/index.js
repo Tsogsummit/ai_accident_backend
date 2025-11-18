@@ -10,7 +10,7 @@ const CameraStreamMonitor = require('./services/cameraStreamMonitor');
 const app = express();
 const PORT = process.env.PORT || 3008;
 
-// Initialize Camera Stream Monitor
+
 let streamMonitor;
 const initializeStreamMonitor = async () => {
   try {
@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// GET /cameras
+
 app.get('/cameras', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -51,7 +51,7 @@ app.get('/cameras', async (req, res) => {
   }
 });
 
-// GET /cameras/:id
+
 app.get('/cameras/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -75,7 +75,7 @@ app.get('/cameras/:id', async (req, res) => {
   }
 });
 
-// POST /cameras
+
 app.post('/cameras', async (req, res) => {
   try {
     const { name, location, latitude, longitude, stream_url, resolution, fps, ip_address, description, status } = req.body;
@@ -89,7 +89,7 @@ app.post('/cameras', async (req, res) => {
       RETURNING *
     `, [name, location, latitude, longitude, stream_url, stream_type, resolution || '720p', fps || 25, ip_address, description, status || 'active']);
 
-    // Reload cameras in monitor
+    
     if (streamMonitor && status === 'active') {
       await streamMonitor.loadActiveCameras();
     }
@@ -101,7 +101,7 @@ app.post('/cameras', async (req, res) => {
   }
 });
 
-// PUT /cameras/:id
+
 app.put('/cameras/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -135,7 +135,7 @@ app.put('/cameras/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Камер олдсонгүй' });
     }
 
-    // Reload cameras in monitor
+    
     if (streamMonitor) {
       await streamMonitor.loadActiveCameras();
     }
@@ -147,7 +147,7 @@ app.put('/cameras/:id', async (req, res) => {
   }
 });
 
-// DELETE /cameras/:id
+
 app.delete('/cameras/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -156,7 +156,7 @@ app.delete('/cameras/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Камер олдсонгүй' });
     }
 
-    // Reload cameras in monitor
+    
     if (streamMonitor) {
       await streamMonitor.loadActiveCameras();
     }
@@ -168,13 +168,13 @@ app.delete('/cameras/:id', async (req, res) => {
   }
 });
 
-// POST /cameras/:id/start
+
 app.post('/cameras/:id/start', async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('UPDATE cameras SET status = $1, is_online = true, updated_at = NOW() WHERE id = $2', ['active', id]);
 
-    // Reload cameras in monitor
+    
     if (streamMonitor) {
       await streamMonitor.loadActiveCameras();
     }
@@ -186,13 +186,13 @@ app.post('/cameras/:id/start', async (req, res) => {
   }
 });
 
-// POST /cameras/:id/stop
+
 app.post('/cameras/:id/stop', async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('UPDATE cameras SET status = $1, is_online = false, updated_at = NOW() WHERE id = $2', ['inactive', id]);
 
-    // Reload cameras in monitor
+    
     if (streamMonitor) {
       await streamMonitor.loadActiveCameras();
     }
@@ -204,13 +204,13 @@ app.post('/cameras/:id/stop', async (req, res) => {
   }
 });
 
-// POST /cameras/:id/restart
+
 app.post('/cameras/:id/restart', async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('UPDATE cameras SET status = $1, is_online = true, updated_at = NOW() WHERE id = $2', ['active', id]);
 
-    // Reload cameras in monitor
+    
     if (streamMonitor) {
       await streamMonitor.loadActiveCameras();
     }
@@ -222,7 +222,7 @@ app.post('/cameras/:id/restart', async (req, res) => {
   }
 });
 
-// ✅ NEW: POST /cameras/:id/process-now - Manually trigger camera processing
+
 app.post('/cameras/:id/process-now', async (req, res) => {
   try {
     const { id } = req.params;
@@ -236,7 +236,7 @@ app.post('/cameras/:id/process-now', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Camera not found or not active' });
     }
 
-    // Trigger processing in background
+    
     streamMonitor.processCamera(camera).catch(err => {
       logger.error(`Manual processing failed for camera ${id}: ${err.message}`);
     });
@@ -248,7 +248,7 @@ app.post('/cameras/:id/process-now', async (req, res) => {
   }
 });
 
-// GET /cameras/:id/stats
+
 app.get('/cameras/:id/stats', async (req, res) => {
   try {
     const { id } = req.params;
@@ -281,7 +281,7 @@ app.get('/cameras/:id/stats', async (req, res) => {
   }
 });
 
-// Health check
+
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
@@ -311,7 +311,7 @@ app.get('/health', async (req, res) => {
 
 app.get('/ping', (req, res) => res.json({ ok: true }));
 
-// GET /admin/stats - Admin dashboard statistics
+
 app.get('/admin/stats', async (req, res) => {
   try {
     const { period = '24h' } = req.query;
@@ -325,7 +325,7 @@ app.get('/admin/stats', async (req, res) => {
       default: interval = '24 hours';
     }
 
-    // Query for statistics
+    
     const statsQuery = interval
       ? `
         SELECT
@@ -357,7 +357,7 @@ app.get('/admin/stats', async (req, res) => {
     const result = await pool.query(statsQuery);
     const stats = result.rows[0];
 
-    // Get recent processing activity
+    
     const recentActivity = await pool.query(`
       SELECT
         c.id,
@@ -372,7 +372,7 @@ app.get('/admin/stats', async (req, res) => {
       LIMIT 10
     `);
 
-    // Calculate detection rate
+    
     const detectionRate = stats.total_videos_processed > 0
       ? ((stats.total_ai_detections / stats.total_videos_processed) * 100).toFixed(2)
       : 0;
@@ -413,7 +413,7 @@ app.listen(PORT, async () => {
   logger.info(`📊 Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
   logger.info(`📡 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 
-  // Initialize stream monitor after server starts
+  
   await initializeStreamMonitor();
 });
 

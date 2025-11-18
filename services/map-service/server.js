@@ -1,4 +1,4 @@
-// services/map-service/server.js
+
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3006;
 
 app.use(express.json());
 
-// PostgreSQL
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -17,7 +17,7 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || 'postgres'
 });
 
-// Redis
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379
@@ -25,16 +25,16 @@ const redis = new Redis({
 
 const mapFeatureDisabledMessage = { error: 'Гадаад газрын зурагны үйлчилгээ идэвхгүй болсон' };
 
-// GET /maps/markers - Газрын зураг дээрх marker-ууд
+
 app.get('/maps/markers', async (req, res) => {
   try {
     const {
-      bounds,  // "lat1,lng1,lat2,lng2"
+      bounds,  
       status,
       limit = 100
     } = req.query;
 
-    // Cache key үүсгэх
+    
     const cacheKey = `map_markers:${bounds}:${status}:${limit}`;
     const cached = await redis.get(cacheKey);
 
@@ -67,7 +67,7 @@ app.get('/maps/markers', async (req, res) => {
     const params = [];
     let paramIndex = 1;
 
-    // Bounds filter
+    
     if (bounds) {
       const [lat1, lng1, lat2, lng2] = bounds.split(',').map(Number);
       query += ` AND mm.latitude BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
@@ -81,13 +81,13 @@ app.get('/maps/markers', async (req, res) => {
       paramIndex += 4;
     }
 
-    // Status filter
+    
     if (status) {
       query += ` AND a.status = $${paramIndex++}`;
       params.push(status);
     }
 
-    // Severity filter
+    
     if (severity) {
       query += ` AND a.severity = $${paramIndex++}`;
       params.push(severity);
@@ -102,7 +102,7 @@ app.get('/maps/markers', async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // Markers форматлах
+    
     const markers = result.rows.map(row => ({
       id: row.id,
       accidentId: row.accident_id,
@@ -121,7 +121,7 @@ app.get('/maps/markers', async (req, res) => {
       falseReportCount: row.false_report_count
     }));
 
-    // Redis-д кэшлэх (2 минут)
+    
     await redis.setex(cacheKey, 120, JSON.stringify(markers));
 
     res.json({
@@ -136,27 +136,27 @@ app.get('/maps/markers', async (req, res) => {
   }
 });
 
-// GET /maps/geocode - disabled
+
 app.get('/maps/geocode', (req, res) => {
   res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/reverse-geocode - disabled
+
 app.get('/maps/reverse-geocode', (req, res) => {
   res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/directions - disabled
+
 app.get('/maps/directions', (req, res) => {
   res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/nearby-places - disabled
+
 app.get('/maps/nearby-places', (req, res) => {
   res.status(410).json(mapFeatureDisabledMessage);
 });
 
-// GET /maps/heatmap - Ослын heatmap өгөгдөл
+
 app.get('/maps/heatmap', async (req, res) => {
   try {
     const { days = 30 } = req.query;
@@ -186,7 +186,7 @@ app.get('/maps/heatmap', async (req, res) => {
   }
 });
 
-// Helper functions
+
 function getMarkerTitle(severity, status) {
   const severityText = {
     'minor': 'Бага',
@@ -213,7 +213,7 @@ function getSeverityWeight(severity) {
   return weights[severity] || 1;
 }
 
-// Health check
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',

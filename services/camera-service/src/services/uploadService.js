@@ -8,14 +8,14 @@ const path = require('path');
 const fs = require('fs').promises;
 const logger = require('../utils/logger');
 
-// Initialize GCS
+
 const storage = new Storage({
   keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
 });
 
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
-// Initialize Pub/Sub
+
 const pubsub = new PubSub({
   keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
 });
@@ -48,7 +48,7 @@ async function uploadVideo(filePath, camera) {
       }
     });
 
-    const publicUrl = `gs://${process.env.GCS_BUCKET_NAME}/${destination}`;
+    const publicUrl = `gs:
     logger.info(`✅ Upload complete: ${publicUrl}`);
 
     return {
@@ -88,10 +88,10 @@ async function publishMessage(data) {
  */
 async function processVideo(filePath, camera) {
   try {
-    // Upload to GCS
+    
     const uploadResult = await uploadVideo(filePath, camera);
 
-    // Publish to Pub/Sub for AI processing
+    
     await publishMessage({
       videoUrl: uploadResult.url,
       cameraId: camera.id,
@@ -102,7 +102,7 @@ async function processVideo(filePath, camera) {
       fileName: uploadResult.fileName
     });
 
-    // Delete local file
+    
     await fs.unlink(filePath);
     logger.debug(`🗑️  Local file deleted: ${filePath}`);
 

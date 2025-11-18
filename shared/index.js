@@ -1,23 +1,23 @@
-// shared/index.js
-// Бүх shared модулиудыг экспортлох үндсэн файл
+
+
 
 module.exports = {
-    // Config
+    
     config: require('./config'),
     
-    // Utils
+    
     utils: require('./utils'),
     
-    // Middleware
+    
     middleware: require('./middleware'),
     
-    // Database
+    
     database: require('./database'),
   };
   
-  // ==============================================
-  // ХЭРХЭН АШИГЛАХ ВЭ
-  // ==============================================
+  
+  
+  
   
   /*
   

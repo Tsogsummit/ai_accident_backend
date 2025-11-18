@@ -1,4 +1,4 @@
-// services/admin-service/server.js - FIXED VERSION WITH CAMERA SERVICE PROXY
+
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -12,7 +12,7 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3009;
 
-// Security middleware
+
 app.use(helmet({
   contentSecurityPolicy: false,
 }));
@@ -23,7 +23,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// PostgreSQL
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -37,7 +37,7 @@ const pool = new Pool({
 
 pool.on('error', (err) => console.error('PostgreSQL pool error:', err));
 
-// Redis - Better error handling
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -60,12 +60,12 @@ redis.on('connect', () => console.log('✅ Redis connected'));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
 const BCRYPT_ROUNDS = 12;
-const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http://camera-service:3008';
-const REPORT_SERVICE_URL = process.env.REPORT_SERVICE_URL || 'http://report-service:3007';
+const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http:
+const REPORT_SERVICE_URL = process.env.REPORT_SERVICE_URL || 'http:
 
-// ==========================================
-// MIDDLEWARE
-// ==========================================
+
+
+
 
 const authenticateAdmin = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -87,9 +87,9 @@ const authenticateAdmin = (req, res, next) => {
   });
 };
 
-// ==========================================
-// AUTHENTICATION
-// ==========================================
+
+
+
 
 app.post('/admin/login', async (req, res) => {
   try {
@@ -166,15 +166,15 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
-// ==========================================
-// DASHBOARD STATISTICS
-// ==========================================
+
+
+
 
 app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
   try {
     const cacheKey = 'admin:dashboard:stats';
     
-    // Try cache first
+    
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
@@ -245,7 +245,7 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
       }
     };
 
-    // Try to cache (but don't fail if Redis is down)
+    
     try {
       await redis.setex(cacheKey, 60, JSON.stringify(stats));
     } catch (redisErr) {
@@ -260,9 +260,9 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
   }
 });
 
-// ==========================================
-// ACCIDENT MANAGEMENT
-// ==========================================
+
+
+
 
 app.get('/admin/accidents', authenticateAdmin, async (req, res) => {
   try {
@@ -342,7 +342,7 @@ app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
     }
 
-    // Clear cache (non-blocking)
+    
     redis.del('admin:dashboard:stats').catch(err => 
       console.warn('Cache clear failed:', err.message)
     );
@@ -375,9 +375,9 @@ app.delete('/admin/accidents/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// ==========================================
-// USER MANAGEMENT
-// ==========================================
+
+
+
 
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
@@ -570,11 +570,11 @@ app.delete('/admin/users/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// ==========================================
-// CAMERA MANAGEMENT - PROXY TO CAMERA SERVICE
-// ==========================================
 
-// Helper function to proxy camera requests
+
+
+
+
 async function proxyCameraRequest(req, res, method, path, body = null) {
   try {
     const url = `${CAMERA_SERVICE_URL}${path}`;
@@ -663,7 +663,7 @@ async function proxyReportRequest(method, path, options = {}) {
   }
 }
 
-// Camera CRUD endpoints - proxy to camera service
+
 app.get('/admin/cameras', authenticateAdmin, async (req, res) => {
   const queryString = new URLSearchParams(req.query).toString();
   const path = queryString ? `/cameras?${queryString}` : '/cameras';
@@ -686,7 +686,7 @@ app.delete('/admin/cameras/:id', authenticateAdmin, async (req, res) => {
   await proxyCameraRequest(req, res, 'DELETE', `/cameras/${req.params.id}`);
 });
 
-// Camera control endpoints
+
 app.post('/admin/cameras/:id/start', authenticateAdmin, async (req, res) => {
   await proxyCameraRequest(req, res, 'POST', `/cameras/${req.params.id}/start`);
 });
@@ -699,9 +699,9 @@ app.post('/admin/cameras/:id/restart', authenticateAdmin, async (req, res) => {
   await proxyCameraRequest(req, res, 'POST', `/cameras/${req.params.id}/restart`);
 });
 
-// ==========================================
-// REPORTS & ANALYTICS
-// ==========================================
+
+
+
 
 app.get('/admin/reports/statistics', authenticateAdmin, async (req, res) => {
   try {
@@ -769,20 +769,20 @@ app.get('/admin/reports/export', authenticateAdmin, async (req, res) => {
   }
 });
 
-// ==========================================
-// SERVICE HEALTH CHECK - FIXED VERSION
-// ==========================================
+
+
+
 
 app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
   const isDev = process.env.NODE_ENV !== 'production';
   const services = [
-    { name: 'User Service', url: process.env.USER_SERVICE_URL || 'http://user-service:3001' },
-    { name: 'Accident Service', url: process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002' },
-    { name: 'Video Service', url: process.env.VIDEO_SERVICE_URL || 'http://video-service:3003' },
-    { name: 'AI Service', url: process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004' },
-    { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005' },
-    { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http://map-service:3006' },
-    { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http://report-service:3007' },
+    { name: 'User Service', url: process.env.USER_SERVICE_URL || 'http:
+    { name: 'Accident Service', url: process.env.ACCIDENT_SERVICE_URL || 'http:
+    { name: 'Video Service', url: process.env.VIDEO_SERVICE_URL || 'http:
+    { name: 'AI Service', url: process.env.AI_SERVICE_URL || 'http:
+    { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http:
+    { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http:
+    { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http:
     { name: 'Camera Service', url: CAMERA_SERVICE_URL },
   ];
 
@@ -835,7 +835,7 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     })
   );
 
-  // Database health
+  
   let dbHealth = 'healthy';
   let dbError = null;
   try {
@@ -845,7 +845,7 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     dbError = err.message;
   }
 
-  // Redis health
+  
   let redisHealth = 'healthy';
   let redisError = null;
   try {
@@ -871,9 +871,9 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
   });
 });
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
+
+
+
 
 app.get('/health', async (req, res) => {
   const health = {
@@ -903,15 +903,15 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
-// ==========================================
-// FALLBACK ROUTE
-// ==========================================
+
+
+
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Error handler
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -920,7 +920,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Graceful shutdown
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   await pool.end();

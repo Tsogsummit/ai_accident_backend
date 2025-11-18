@@ -1,4 +1,4 @@
-// services/user-service/server.js - FIXED VERSION
+
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -9,11 +9,11 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ==========================================
-// MIDDLEWARE - CORS FIRST!
-// ==========================================
 
-// CORS configuration - Allow everything for development
+
+
+
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -22,22 +22,22 @@ app.use(cors({
   maxAge: 86400
 }));
 
-// Handle preflight
+
 app.options('*', cors());
 
-// Body parser
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logger
+
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
 
-// ==========================================
-// DATABASE
-// ==========================================
+
+
+
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
@@ -53,7 +53,7 @@ const pool = new Pool({
 pool.on('error', (err) => console.error('PostgreSQL pool error:', err));
 pool.on('connect', () => console.log('✅ PostgreSQL connected'));
 
-// Redis
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -64,18 +64,18 @@ const redis = new Redis({
 redis.on('error', (err) => console.error('Redis error:', err));
 redis.on('connect', () => console.log('✅ Redis connected'));
 
-// ==========================================
-// CONFIG
-// ==========================================
+
+
+
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '7d';
 const REFRESH_TOKEN_EXPIRES_IN = '30d';
 const BCRYPT_ROUNDS = 12;
 
-// ==========================================
-// HELPER FUNCTIONS
-// ==========================================
+
+
+
 
 function generateTokens(user) {
   const accessToken = jwt.sign(
@@ -123,9 +123,9 @@ function validatePassword(password) {
   return { valid: true };
 }
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
+
+
+
 
 app.get('/health', async (req, res) => {
   const health = {
@@ -154,9 +154,9 @@ app.get('/health', async (req, res) => {
   res.status(health.status === 'healthy' ? 200 : 503).json(health);
 });
 
-// ==========================================
-// AUTH ENDPOINTS
-// ==========================================
+
+
+
 
 const loginAttempts = new Map();
 
@@ -199,14 +199,14 @@ function resetLoginAttempts(phone) {
   loginAttempts.delete(`login:${phone}`);
 }
 
-// POST /auth/register
+
 app.post('/auth/register', async (req, res) => {
   const client = await pool.connect();
   
   try {
     const { phone, email, name, password } = req.body;
 
-    // Validation
+    
     if (!phone || !name || !password) {
       return res.status(400).json({ 
         success: false,
@@ -238,7 +238,7 @@ app.post('/auth/register', async (req, res) => {
 
     await client.query('BEGIN');
 
-    // Check existing
+    
     const existingUser = await client.query(
       email 
         ? 'SELECT id FROM users WHERE phone = $1 OR email = $2'
@@ -307,7 +307,7 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
-// POST /auth/login
+
 app.post('/auth/login', async (req, res) => {
   try {
     const { phone, password } = req.body;
@@ -391,7 +391,7 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
-// POST /auth/logout
+
 app.post('/auth/logout', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -415,7 +415,7 @@ app.post('/auth/logout', async (req, res) => {
   }
 });
 
-// 404 handler
+
 app.use((req, res) => {
   res.status(404).json({ 
     success: false,
@@ -424,7 +424,7 @@ app.use((req, res) => {
   });
 });
 
-// Error handler
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -435,9 +435,9 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ==========================================
-// START SERVER
-// ==========================================
+
+
+
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('═══════════════════════════════════════════════════════════');
@@ -450,7 +450,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('═══════════════════════════════════════════════════════════\n');
 });
 
-// Graceful shutdown
+
 process.on('SIGTERM', async () => {
   console.log('Shutting down...');
   await pool.end();

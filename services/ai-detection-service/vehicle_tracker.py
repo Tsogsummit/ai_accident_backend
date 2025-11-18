@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class VehicleTracker:
     """Track vehicles across frames and detect potential accidents"""
     
-    # Vehicle classes to track (from COCO dataset)
+    
     VEHICLE_CLASSES = ['car', 'truck', 'bus', 'motorcycle', 'bicycle']
     
     def __init__(
@@ -32,7 +32,7 @@ class VehicleTracker:
         self.min_accident_ratio = min_accident_ratio
         self.max_tracking_distance = max_tracking_distance
         
-        # Storage for tracking
+        
         self.detections_df = None
         self.vehicle_tracks = []
         
@@ -60,13 +60,13 @@ class VehicleTracker:
         detections = []
         
         for i, (box, conf, class_id) in enumerate(zip(boxes, confidences, class_ids)):
-            class_name = class_names[i]  # ✅ Use loop index instead
+            class_name = class_names[i]  
             
-            # Filter for vehicles only
+            
             if class_name not in self.VEHICLE_CLASSES:
                 continue
                 
-            # Filter by confidence
+            
             if conf < self.confidence_threshold:
                 continue
             
@@ -77,7 +77,7 @@ class VehicleTracker:
             detections.append({
                 'frame_idx': frame_idx,
                 'x': center_x,
-                'y': -center_y,  # Invert Y for consistent coordinate system
+                'y': -center_y,  
                 'x2': x2,
                 'y2': y2,
                 'width': x2 - x,
@@ -109,14 +109,14 @@ class VehicleTracker:
         if self.detections_df is None or len(self.detections_df) == 0:
             return []
         
-        # Sort by frame index
+        
         df = self.detections_df.sort_values('frame_idx').reset_index(drop=True)
         
         tracks = []
         track_id = 0
         assigned = set()
         
-        # Group by frame
+        
         for frame_idx in df['frame_idx'].unique():
             frame_detections = df[df['frame_idx'] == frame_idx]
             
@@ -126,7 +126,7 @@ class VehicleTracker:
                 if det_id in assigned:
                     continue
                 
-                # Start new track
+                
                 track = {
                     'track_id': track_id,
                     'class': detection['class'],
@@ -143,7 +143,7 @@ class VehicleTracker:
                 
                 assigned.add(det_id)
                 
-                # Try to extend track to next frames
+                
                 current_pos = (detection['x'], detection['y'])
                 current_frame = frame_idx
                 
@@ -156,7 +156,7 @@ class VehicleTracker:
                     if len(next_detections) == 0:
                         continue
                     
-                    # Find closest detection
+                    
                     min_dist = float('inf')
                     closest_det = None
                     closest_idx = None
@@ -220,7 +220,7 @@ class VehicleTracker:
         accident_indicators = []
         suspicious_frames = set()
         
-        # Analyze each track
+        
         for track in self.vehicle_tracks:
             if len(track['positions']) < 3:
                 continue
@@ -228,11 +228,11 @@ class VehicleTracker:
             positions = np.array(track['positions'])
             frames = track['frames']
             
-            # Calculate velocities (position change between frames)
+            
             velocities = np.diff(positions, axis=0)
             speeds = np.linalg.norm(velocities, axis=1)
             
-            # Detect sudden stops (large speed reduction)
+            
             if len(speeds) > 1:
                 speed_changes = np.diff(speeds)
                 sudden_stops = np.where(speed_changes < -20)[0]
@@ -249,7 +249,7 @@ class VehicleTracker:
                         'confidence': min(track['confidences'][stop_idx], 0.9)
                     })
         
-        # Check for vehicle clustering (multiple vehicles close together)
+        
         if self.detections_df is not None:
             for frame_idx in self.detections_df['frame_idx'].unique():
                 frame_vehicles = self.detections_df[
@@ -257,14 +257,14 @@ class VehicleTracker:
                 ]
                 
                 if len(frame_vehicles) >= 3:
-                    # Calculate pairwise distances
+                    
                     positions = frame_vehicles[['x', 'y']].values
                     
                     close_pairs = 0
                     for i in range(len(positions)):
                         for j in range(i + 1, len(positions)):
                             dist = euclidean(positions[i], positions[j])
-                            if dist < 50:  # Close proximity threshold
+                            if dist < 50:  
                                 close_pairs += 1
                     
                     if close_pairs >= 2:
@@ -276,17 +276,17 @@ class VehicleTracker:
                             'confidence': min(0.7, 0.5 + close_pairs * 0.1)
                         })
         
-        # Calculate overall accident probability
+        
         total_frames = len(self.detections_df['frame_idx'].unique()) if self.detections_df is not None else 0
         accident_frame_ratio = len(suspicious_frames) / total_frames if total_frames > 0 else 0
         
-        # Calculate max confidence from indicators
+        
         max_confidence = max(
             [ind['confidence'] for ind in accident_indicators],
             default=0.0
         )
         
-        # Decision logic
+        
         has_accident = (
             accident_frame_ratio > self.min_accident_ratio and
             max_confidence > self.accident_detection_threshold

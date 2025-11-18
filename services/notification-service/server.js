@@ -1,4 +1,4 @@
-// services/notification-service/server.js - FIXED VERSION
+
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3005;
 
 app.use(express.json());
 
-// PostgreSQL
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -37,7 +37,7 @@ pool.on('error', (err) => {
   console.error('PostgreSQL pool error:', err);
 });
 
-// Redis
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -51,7 +51,7 @@ redis.on('error', (err) => {
   console.error('Redis error:', err);
 });
 
-// ✅ FIXED: Firebase Admin SDK initialization
+
 let firebaseInitialized = false;
 try {
   const credentialsPath = process.env.FIREBASE_CREDENTIALS;
@@ -74,8 +74,8 @@ try {
   console.warn('⚠️  Push notifications will not work');
 }
 
-// Socket.IO user mapping
-const userSockets = new Map(); // userId -> socketId
+
+const userSockets = new Map(); 
 
 io.on('connection', (socket) => {
   console.log('Client холбогдсон:', socket.id);
@@ -102,7 +102,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// GET /notifications - Хэрэглэгчийн мэдэгдлүүд
+
 app.get('/notifications', async (req, res) => {
   try {
     const { userId, page = 1, limit = 20, unreadOnly } = req.query;
@@ -134,7 +134,7 @@ app.get('/notifications', async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // Unread count
+    
     const countResult = await pool.query(
       'SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false',
       [userId]
@@ -158,7 +158,7 @@ app.get('/notifications', async (req, res) => {
   }
 });
 
-// PUT /notifications/:id/read - Мэдэгдэл уншсан гэж тэмдэглэх
+
 app.put('/notifications/:id/read', async (req, res) => {
   try {
     const { id } = req.params;
@@ -197,7 +197,7 @@ app.put('/notifications/:id/read', async (req, res) => {
   }
 });
 
-// PUT /notifications/read-all - Бүх мэдэгдэл уншсан гэж тэмдэглэх
+
 app.put('/notifications/read-all', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -228,7 +228,7 @@ app.put('/notifications/read-all', async (req, res) => {
   }
 });
 
-// DELETE /notifications/:id - Мэдэгдэл устгах
+
 app.delete('/notifications/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -267,11 +267,11 @@ app.delete('/notifications/:id', async (req, res) => {
   }
 });
 
-// ✅ FIXED: POST /notifications/send - Improved error handling
+
 app.post('/notifications/send', async (req, res) => {
   try {
     const {
-      userIds,  // Array of user IDs
+      userIds,  
       accidentId,
       type,
       title,
@@ -279,7 +279,7 @@ app.post('/notifications/send', async (req, res) => {
       data = {}
     } = req.body;
 
-    // Validation
+    
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
       return res.status(400).json({ 
         success: false,
@@ -298,10 +298,10 @@ app.post('/notifications/send', async (req, res) => {
     const fcmTokens = [];
     const socketsSent = [];
 
-    // Database-д мэдэгдэл хадгалах + Socket.IO илгээх
+    
     for (const userId of userIds) {
       try {
-        // Database insert
+        
         const result = await pool.query(`
           INSERT INTO notifications (user_id, accident_id, type, title, message, sent_at)
           VALUES ($1, $2, $3, $4, $5, NOW())
@@ -310,7 +310,7 @@ app.post('/notifications/send', async (req, res) => {
 
         notifications.push(result.rows[0]);
 
-        // Socket.IO-оор мэдэгдэл илгээх
+        
         const socketId = userSockets.get(userId.toString());
         if (socketId) {
           io.to(socketId).emit('notification', {
@@ -320,7 +320,7 @@ app.post('/notifications/send', async (req, res) => {
           socketsSent.push(userId);
         }
 
-        // FCM token авах
+        
         const tokenResult = await redis.get(`fcm_token:${userId}`);
         if (tokenResult) {
           fcmTokens.push({
@@ -333,7 +333,7 @@ app.post('/notifications/send', async (req, res) => {
       }
     }
 
-    // ✅ FIXED: Firebase Push Notification with better error handling
+    
     let fcmSuccess = 0;
     let fcmFailure = 0;
     
@@ -355,7 +355,7 @@ app.post('/notifications/send', async (req, res) => {
           }
         };
 
-        // Send to each token (multicast can handle up to 500 tokens)
+        
         const chunks = [];
         for (let i = 0; i < tokens.length; i += 500) {
           chunks.push(tokens.slice(i, i + 500));
@@ -370,7 +370,7 @@ app.post('/notifications/send', async (req, res) => {
           fcmSuccess += response.successCount;
           fcmFailure += response.failureCount;
 
-          // Remove invalid tokens
+          
           if (response.failureCount > 0) {
             response.responses.forEach((resp, idx) => {
               if (!resp.success) {
@@ -416,7 +416,7 @@ app.post('/notifications/send', async (req, res) => {
   }
 });
 
-// POST /notifications/register-token - FCM токен бүртгэх
+
 app.post('/notifications/register-token', async (req, res) => {
   try {
     const { userId, fcmToken } = req.body;
@@ -428,7 +428,7 @@ app.post('/notifications/register-token', async (req, res) => {
       });
     }
 
-    // Validate FCM token format (optional)
+    
     if (typeof fcmToken !== 'string' || fcmToken.length < 20) {
       return res.status(400).json({
         success: false,
@@ -436,7 +436,7 @@ app.post('/notifications/register-token', async (req, res) => {
       });
     }
 
-    // Redis-д хадгалах (30 өдөр)
+    
     await redis.setex(`fcm_token:${userId}`, 30 * 24 * 60 * 60, fcmToken);
 
     res.json({ 
@@ -453,7 +453,7 @@ app.post('/notifications/register-token', async (req, res) => {
   }
 });
 
-// DELETE /notifications/unregister-token - FCM токен устгах
+
 app.delete('/notifications/unregister-token', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -481,7 +481,7 @@ app.delete('/notifications/unregister-token', async (req, res) => {
   }
 });
 
-// GET /notifications/settings/:userId - Мэдэгдлийн тохиргоо
+
 app.get('/notifications/settings/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -492,7 +492,7 @@ app.get('/notifications/settings/:userId', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      // Default settings үүсгэх
+      
       const newSettings = await pool.query(`
         INSERT INTO notification_settings (user_id, push_enabled, radius, accident_types)
         VALUES ($1, true, 5000, '[]')
@@ -519,7 +519,7 @@ app.get('/notifications/settings/:userId', async (req, res) => {
   }
 });
 
-// PUT /notifications/settings/:userId - Тохиргоо шинэчлэх
+
 app.put('/notifications/settings/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -562,7 +562,7 @@ app.put('/notifications/settings/:userId', async (req, res) => {
   }
 });
 
-// Health check
+
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
@@ -593,7 +593,7 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
-// Graceful shutdown
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   

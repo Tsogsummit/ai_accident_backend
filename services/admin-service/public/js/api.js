@@ -1,5 +1,5 @@
 const API_BASE_URL = window.location.origin;
-const USER_SERVICE_URL = window.location.protocol + '//' + window.location.hostname + ':3001';
+const USER_SERVICE_URL = window.location.protocol + '
 
 class API {
   constructor() {

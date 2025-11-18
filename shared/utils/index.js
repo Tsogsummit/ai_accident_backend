@@ -1,5 +1,5 @@
-// shared/utils/index.js
-// Нийтлэг утилити функцүүд
+
+
 
 const crypto = require('crypto');
 
@@ -8,7 +8,7 @@ const crypto = require('crypto');
  * Haversine формул ашиглан
  */
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Дэлхийн радиус метрээр
+  const R = 6371e3; 
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -19,7 +19,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-  return R * c; // метрээр
+  return R * c; 
 }
 
 /**
@@ -184,7 +184,7 @@ async function retry(fn, maxAttempts = 3, delay = 1000) {
       return await fn();
     } catch (error) {
       if (i === maxAttempts - 1) throw error;
-      await sleep(delay * Math.pow(2, i)); // Exponential backoff
+      await sleep(delay * Math.pow(2, i)); 
     }
   }
 }
@@ -264,9 +264,9 @@ function createCacheKey(prefix, ...parts) {
  */
 function getSeverityColor(severity) {
   const colors = {
-    minor: '#FFA500',    // orange
-    moderate: '#FF6B00', // dark orange
-    severe: '#FF0000',   // red
+    minor: '#FFA500',    
+    moderate: '#FF6B00', 
+    severe: '#FF0000',   
   };
   return colors[severity] || '#808080';
 }
@@ -276,10 +276,10 @@ function getSeverityColor(severity) {
  */
 function getStatusColor(status) {
   const colors = {
-    reported: '#FFA500',    // orange
-    confirmed: '#FF0000',   // red
-    resolved: '#00FF00',    // green
-    false_alarm: '#808080', // gray
+    reported: '#FFA500',    
+    confirmed: '#FF0000',   
+    resolved: '#00FF00',    
+    false_alarm: '#808080', 
   };
   return colors[status] || '#808080';
 }
@@ -312,60 +312,60 @@ function logInfo(message, data = {}) {
 }
 
 module.exports = {
-  // Distance & Location
+  
   calculateDistance,
   formatDistance,
   validateCoordinates,
   
-  // Date & Time
+  
   formatDate,
   formatTime,
   timeAgo,
   
-  // Validation
+  
   validatePhone,
   validateEmail,
   
-  // ID & Random
+  
   generateId,
   generateRandomString,
   
-  // Pagination
+  
   paginate,
   
-  // Response formatting
+  
   successResponse,
   errorResponse,
   
-  // User
+  
   sanitizeUser,
   
-  // File
+  
   formatFileSize,
   
-  // Async
+  
   retry,
   sleep,
   
-  // Object manipulation
+  
   deepClone,
   removeEmpty,
   
-  // Array
+  
   chunkArray,
   
-  // Function utilities
+  
   debounce,
   throttle,
   
-  // Cache
+  
   createCacheKey,
   
-  // UI
+  
   getSeverityColor,
   getStatusColor,
   
-  // Logging
+  
   logError,
   logInfo,
 };

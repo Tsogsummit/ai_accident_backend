@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const logger = require('../utils/logger');
 
-// FFmpeg path configuration
+
 if (process.env.FFMPEG_PATH) {
   ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
 }
@@ -29,18 +29,18 @@ async function captureStream(camera, duration = 30) {
   logger.info(`📹 Бичлэг авч байна: ${camera.name} (${duration}s)`);
 
   const isHLS = camera.type === 'hls' || camera.streamUrl.includes('.m3u8');
-  const isRTSP = camera.type === 'rtsp' || camera.streamUrl.startsWith('rtsp://');
+  const isRTSP = camera.type === 'rtsp' || camera.streamUrl.startsWith('rtsp:
 
   return new Promise((resolve, reject) => {
     const command = ffmpeg(camera.streamUrl);
 
-    // ✅ Input options based on stream type
+    
     if (isHLS) {
-      // HLS Stream (UB Traffic)
+      
       const inputOptions = [
         '-allowed_extensions', 'ALL',
         '-protocol_whitelist', 'file,http,https,tcp,tls',
-        '-timeout', '5000000',          // ✅ FIXED: -timeout instead of -stimeout
+        '-timeout', '5000000',          
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5'
@@ -50,10 +50,10 @@ async function captureStream(camera, duration = 30) {
       logger.debug(`FFmpeg HLS input: ${inputOptions.join(' ')}`);
       
     } else if (isRTSP) {
-      // RTSP Stream (traditional IP cameras)
+      
       const inputOptions = [
         '-rtsp_transport', 'tcp',
-        '-timeout', '5000000',          // ✅ FIXED: -timeout instead of -stimeout
+        '-timeout', '5000000',          
         '-analyzeduration', '5000000',
         '-probesize', '5000000'
       ];
@@ -65,14 +65,14 @@ async function captureStream(camera, duration = 30) {
       logger.warn(`Unknown stream type for camera ${camera.id}`);
     }
 
-    // Output options (same for all types)
+    
     command
       .outputOptions([
-        '-c:v', 'libx264',           // Video codec
-        '-preset', 'ultrafast',      // Encoding speed
-        '-crf', '28',                // Quality (lower = better)
-        '-t', duration.toString(),   // Duration
-        '-movflags', '+faststart'    // Web optimization
+        '-c:v', 'libx264',           
+        '-preset', 'ultrafast',      
+        '-crf', '28',                
+        '-t', duration.toString(),   
+        '-movflags', '+faststart'    
       ])
       .output(outputPath)
       .on('start', (commandLine) => {
@@ -91,7 +91,7 @@ async function captureStream(camera, duration = 30) {
           resolve(outputPath);
         } catch (error) {
           logger.error(`Error checking file: ${error.message}`);
-          resolve(outputPath); // Still resolve with path
+          resolve(outputPath); 
         }
       })
       .on('error', (err, stdout, stderr) => {
@@ -102,7 +102,7 @@ async function captureStream(camera, duration = 30) {
         reject(err);
       });
 
-    // Start recording
+    
     command.run();
   });
 }

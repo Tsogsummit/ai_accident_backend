@@ -1,4 +1,4 @@
-// services/report-service/server.js - FIXED VERSION
+
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3007;
 
 app.use(express.json());
 
-// PostgreSQL
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -24,7 +24,7 @@ pool.on('error', (err) => {
   console.error('PostgreSQL pool error:', err);
 });
 
-// Redis
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -38,11 +38,11 @@ redis.on('error', (err) => {
   console.error('Redis error:', err);
 });
 
-// ============================================
-// FALSE REPORTS (Буруу мэдээлэл)
-// ============================================
 
-// GET /false-reports - Бүх буруу мэдээллүүд
+
+
+
+
 app.get('/false-reports', async (req, res) => {
   try {
     const { accidentId, userId, reasonId, limit = 50, offset = 0 } = req.query;
@@ -100,7 +100,7 @@ app.get('/false-reports', async (req, res) => {
   }
 });
 
-// POST /false-reports - Шинэ буруу мэдээлэл бүртгэх
+
 app.post('/false-reports', async (req, res) => {
   const client = await pool.connect();
 
@@ -116,7 +116,7 @@ app.post('/false-reports', async (req, res) => {
 
     await client.query('BEGIN');
 
-    // ✅ CHECK: Has this user already reported this accident?
+    
     const existingReport = await client.query(`
       SELECT id FROM false_reports
       WHERE accident_id = $1 AND user_id = $2
@@ -131,7 +131,7 @@ app.post('/false-reports', async (req, res) => {
       });
     }
 
-    // False report бүртгэх
+    
     const reportResult = await client.query(`
       INSERT INTO false_reports (accident_id, user_id, reason_id, comment, reported_at)
       VALUES ($1, $2, $3, $4, NOW())
@@ -140,14 +140,14 @@ app.post('/false-reports', async (req, res) => {
 
     const report = reportResult.rows[0];
 
-    // False report-ын тоо шалгах
+    
     const countResult = await client.query(`
       SELECT COUNT(*) as count FROM false_reports WHERE accident_id = $1
     `, [accidentId]);
 
     const falseReportCount = parseInt(countResult.rows[0].count);
 
-    // 3+ false report бол accident-ын статус false_alarm болгох
+    
     let statusChanged = false;
     if (falseReportCount >= 3) {
       await client.query(`
@@ -160,16 +160,16 @@ app.post('/false-reports', async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Redis кэш устгах
+    
     const keys = await redis.keys('accidents:*');
     if (keys.length > 0) {
       await redis.del(...keys);
     }
 
-    // If status changed to false_alarm, notify users
+    
     if (statusChanged) {
       try {
-        // Get accident details for notification
+        
         const accidentResult = await pool.query(
           'SELECT * FROM accidents WHERE id = $1',
           [accidentId]
@@ -178,7 +178,7 @@ app.post('/false-reports', async (req, res) => {
         if (accidentResult.rows.length > 0) {
           const accident = accidentResult.rows[0];
           
-          // Get all users who were notified about this accident
+          
           const notifiedUsersResult = await pool.query(`
             SELECT DISTINCT user_id 
             FROM notifications 
@@ -188,8 +188,8 @@ app.post('/false-reports', async (req, res) => {
           const userIds = notifiedUsersResult.rows.map(row => row.user_id);
           
           if (userIds.length > 0) {
-            // Notify via notification service
-            const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005';
+            
+            const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http:
             const axios = require('axios');
             
             await axios.post(
@@ -215,7 +215,7 @@ app.post('/false-reports', async (req, res) => {
         }
       } catch (notifyErr) {
         console.error('⚠️ Failed to send false alarm notification:', notifyErr.message);
-        // Don't fail the whole process if notification fails
+        
       }
     }
 
@@ -231,7 +231,7 @@ app.post('/false-reports', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('Create false report error:', error);
 
-    // ✅ Handle duplicate key violation (UNIQUE constraint)
+    
     if (error.code === '23505' && error.constraint === 'unique_user_accident_report') {
       return res.status(409).json({
         success: false,
@@ -250,7 +250,7 @@ app.post('/false-reports', async (req, res) => {
   }
 });
 
-// GET /false-reports/reasons - Буруу мэдээллийн шалтгаанууд
+
 app.get('/false-reports/reasons', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -271,16 +271,16 @@ app.get('/false-reports/reasons', async (req, res) => {
   }
 });
 
-// ============================================
-// STATISTICS & REPORTS (Статистик тайлан)
-// ============================================
 
-// ✅ FIXED: GET /reports/statistics - SQL injection prevention
+
+
+
+
 app.get('/reports/statistics', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // ✅ FIXED: Validate and sanitize dates
+    
     let start, end;
     
     if (startDate) {
@@ -307,7 +307,7 @@ app.get('/reports/statistics', async (req, res) => {
       end = new Date();
     }
 
-    // Parallel queries for better performance
+    
     const [
       totalAccidents,
       accidentsBySeverity,
@@ -317,14 +317,14 @@ app.get('/reports/statistics', async (req, res) => {
       dailyStats,
       cameraStats
     ] = await Promise.all([
-      // Нийт ослын тоо
+      
       pool.query(`
         SELECT COUNT(*) as count
         FROM accidents
         WHERE accident_time >= $1 AND accident_time <= $2
       `, [start.toISOString(), end.toISOString()]),
 
-      // Хүндийн зэргээр
+      
       pool.query(`
         SELECT severity, COUNT(*) as count
         FROM accidents
@@ -332,7 +332,7 @@ app.get('/reports/statistics', async (req, res) => {
         GROUP BY severity
       `, [start.toISOString(), end.toISOString()]),
 
-      // Статусаар
+      
       pool.query(`
         SELECT status, COUNT(*) as count
         FROM accidents
@@ -340,7 +340,7 @@ app.get('/reports/statistics', async (req, res) => {
         GROUP BY status
       `, [start.toISOString(), end.toISOString()]),
 
-      // Эх үүсвэрээр
+      
       pool.query(`
         SELECT source, COUNT(*) as count
         FROM accidents
@@ -348,7 +348,7 @@ app.get('/reports/statistics', async (req, res) => {
         GROUP BY source
       `, [start.toISOString(), end.toISOString()]),
 
-      // Топ байршил
+      
       pool.query(`
         SELECT 
           ROUND(latitude::numeric, 3) as lat,
@@ -361,7 +361,7 @@ app.get('/reports/statistics', async (req, res) => {
         LIMIT 10
       `, [start.toISOString(), end.toISOString()]),
 
-      // Өдрөөр статистик
+      
       pool.query(`
         SELECT 
           DATE(accident_time) as date,
@@ -375,7 +375,7 @@ app.get('/reports/statistics', async (req, res) => {
         ORDER BY date DESC
       `, [start.toISOString(), end.toISOString()]),
 
-      // Камерын статистик
+      
       pool.query(`
         SELECT 
           c.id,
@@ -428,7 +428,7 @@ app.get('/reports/statistics', async (req, res) => {
   }
 });
 
-// GET /reports/user-activity - Хэрэглэгчийн идэвх
+
 app.get('/reports/user-activity', async (req, res) => {
   try {
     const { userId, limit = 50, offset = 0 } = req.query;
@@ -480,7 +480,7 @@ app.get('/reports/user-activity', async (req, res) => {
   }
 });
 
-// GET /reports/camera-performance - Камерын гүйцэтгэл
+
 app.get('/reports/camera-performance', async (req, res) => {
   try {
     const { cameraId } = req.query;
@@ -535,12 +535,12 @@ app.get('/reports/camera-performance', async (req, res) => {
   }
 });
 
-// ✅ FIXED: GET /reports/ai-accuracy - Parameterized queries
+
 app.get('/reports/ai-accuracy', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // ✅ FIXED: Validate dates
+    
     let start, end;
     
     if (startDate) {
@@ -588,7 +588,7 @@ app.get('/reports/ai-accuracy', async (req, res) => {
 
     const stats = result.rows[0];
 
-    // Accuracy calculation
+    
     const totalProcessed = parseInt(stats.total_videos_processed) || 1;
     const confirmed = parseInt(stats.confirmed_accidents) || 0;
     const falseAlarms = parseInt(stats.false_alarms) || 0;
@@ -633,12 +633,12 @@ app.get('/reports/ai-accuracy', async (req, res) => {
   }
 });
 
-// GET /reports/export - Тайлан татаж авах (CSV)
+
 app.get('/reports/export', async (req, res) => {
   try {
     const { type = 'accidents', startDate, endDate } = req.query;
 
-    // ✅ FIXED: Validate dates
+    
     let start, end;
     
     if (startDate) {
@@ -734,7 +734,7 @@ app.get('/reports/export', async (req, res) => {
 
     const result = await pool.query(query, [start.toISOString(), end.toISOString()]);
 
-    // Convert to CSV
+    
     const rows = result.rows;
     if (rows.length === 0) {
       return res.status(404).json({ 
@@ -747,7 +747,7 @@ app.get('/reports/export', async (req, res) => {
     const csvData = [
       headers,
       ...rows.map(row => Object.values(row).map(val => {
-        // Escape commas and quotes
+        
         if (val === null || val === undefined) return '';
         const str = String(val);
         if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -759,7 +759,7 @@ app.get('/reports/export', async (req, res) => {
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csvData); // UTF-8 BOM for Excel
+    res.send('\uFEFF' + csvData); 
 
   } catch (error) {
     console.error('Export report error:', error);
@@ -770,7 +770,7 @@ app.get('/reports/export', async (req, res) => {
   }
 });
 
-// Health check
+
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
@@ -799,7 +799,7 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
-// Graceful shutdown
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   await pool.end();
