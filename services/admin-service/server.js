@@ -341,12 +341,56 @@ app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
     }
 
+    const accident = result.rows[0];
+
     // Clear cache (non-blocking)
-    redis.del('admin:dashboard:stats').catch(err => 
+    redis.del('admin:dashboard:stats').catch(err =>
       console.warn('Cache clear failed:', err.message)
     );
 
-    res.json({ success: true, message: 'Төлөв шинэчлэгдлээ', data: result.rows[0] });
+    // ✅ If admin marks as false_alarm, send notifications to users
+    if (status === 'false_alarm') {
+      try {
+        // Get all users who were notified about this accident
+        const notifiedUsersResult = await pool.query(`
+          SELECT DISTINCT user_id
+          FROM notifications
+          WHERE accident_id = $1 AND type = 'accident_confirmed'
+        `, [id]);
+
+        const userIds = notifiedUsersResult.rows.map(row => row.user_id);
+
+        if (userIds.length > 0) {
+          const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005';
+          const axios = require('axios');
+
+          await axios.post(
+            `${notificationServiceUrl}/notifications/send`,
+            {
+              userIds: userIds,
+              accidentId: parseInt(id),
+              type: 'false_alarm',
+              title: '⚠️ Буруу мэдээлэл баталгаажлаа',
+              message: `Осол #${id} буруу мэдээлэл гэж админ баталгаажууллаа.`,
+              data: {
+                latitude: String(accident.latitude),
+                longitude: String(accident.longitude),
+                accidentId: String(id),
+                status: 'false_alarm'
+              }
+            },
+            { timeout: 10000 }
+          );
+
+          console.log(`✅ False alarm notification sent to ${userIds.length} users by admin`);
+        }
+      } catch (notifyErr) {
+        console.error('⚠️ Failed to send false alarm notification:', notifyErr.message);
+        // Don't fail the status update if notification fails
+      }
+    }
+
+    res.json({ success: true, message: 'Төлөв шинэчлэгдлээ', data: accident });
 
   } catch (error) {
     console.error('Update accident status error:', error);

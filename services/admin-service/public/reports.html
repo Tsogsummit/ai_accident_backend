@@ -5,43 +5,542 @@
   <title>Тайлангууд - Admin Panel</title>
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      border-left: 4px solid var(--primary);
+    }
+    .stat-card.success { border-left-color: var(--success); }
+    .stat-card.warning { border-left-color: var(--warning); }
+    .stat-card.danger { border-left-color: var(--danger); }
+    .stat-card.info { border-left-color: var(--info); }
+
+    .stat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .stat-title {
+      font-size: 0.875rem;
+      color: var(--secondary);
+      font-weight: 500;
+    }
+    .stat-icon {
+      font-size: 1.5rem;
+      opacity: 0.5;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: bold;
+      color: var(--dark);
+    }
+    .stat-change {
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+    }
+    .stat-change.positive { color: var(--success); }
+    .stat-change.negative { color: var(--danger); }
+
+    .report-filters {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 1.5rem;
+    }
+    .filter-row {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .filter-group {
+      flex: 1;
+      min-width: 200px;
+    }
+    .filter-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--dark);
+    }
+    .filter-group select,
+    .filter-group input {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.875rem;
+    }
+
+    .chart-container {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 1.5rem;
+    }
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--dark);
+    }
+
+    .report-table {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .loading-spinner {
+      text-align: center;
+      padding: 2rem;
+    }
+    .spinner {
+      border: 4px solid rgba(0,0,0,0.1);
+      border-left-color: var(--primary);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
   <div class="admin-container">
     <aside class="sidebar">
-      <div class="sidebar-header"><h2><i class="fas fa-car-crash"></i> Admin Panel</h2><p>AI Accident Detection</p></div>
+      <div class="sidebar-header">
+        <h2><i class="fas fa-car-crash"></i> Admin Panel</h2>
+        <p>AI Accident Detection</p>
+      </div>
       <nav class="sidebar-nav">
         <div class="nav-item"><a href="/dashboard.html" class="nav-link"><i class="fas fa-th-large"></i><span>Дашбоард</span></a></div>
         <div class="nav-item"><a href="/accidents.html" class="nav-link"><i class="fas fa-exclamation-triangle"></i><span>Ослууд</span></a></div>
         <div class="nav-item"><a href="/users.html" class="nav-link"><i class="fas fa-users"></i><span>Хэрэглэгчид</span></a></div>
         <div class="nav-item"><a href="/cameras.html" class="nav-link"><i class="fas fa-video"></i><span>Камерууд</span></a></div>
-        <div class="nav-item"><a href="/reports.html" class="nav-link active" data-page="reports"><i class="fas fa-chart-bar"></i><span>Тайлангууд</span></a></div>
-        <div class="nav-item"><a href="/services.html" class="nav-link" data-page="services"><i class="fas fa-server"></i><span>Сервисүүд</span></a></div>
+        <div class="nav-item"><a href="/reports.html" class="nav-link active"><i class="fas fa-chart-bar"></i><span>Тайлангууд</span></a></div>
+        <div class="nav-item"><a href="/services.html" class="nav-link"><i class="fas fa-server"></i><span>Сервисүүд</span></a></div>
       </nav>
     </aside>
+
     <main class="main-content">
       <header class="topbar">
-        <div class="topbar-left"><h1>Тайлангууд</h1></div>
+        <div class="topbar-left">
+          <h1>Тайлангууд</h1>
+        </div>
         <div class="topbar-right">
-          <div class="user-info"><div class="user-avatar">A</div><div class="user-details"><div class="user-name">Admin</div><div class="user-role">Админ</div></div></div>
-          <button class="btn btn-sm btn-danger" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Гарах</button>
+          <div class="user-info">
+            <div class="user-avatar">A</div>
+            <div class="user-details">
+              <div class="user-name">Admin</div>
+              <div class="user-role">Админ</div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-danger" id="logout-btn">
+            <i class="fas fa-sign-out-alt"></i> Гарах
+          </button>
         </div>
       </header>
+
       <div class="content">
-        <div class="card">
-          <div class="card-body" style="text-align: center; padding: 4rem 2rem;">
-            <i class="fas fa-chart-bar" style="font-size: 4rem; color: var(--primary); margin-bottom: 1rem;"></i>
-            <h2 style="margin-bottom: 1rem;">Тайлангийн систем</h2>
-            <p style="color: var(--secondary);">Тайлангийн модуль хөгжүүлэлт хийгдэж байна.</p>
-            <div style="margin-top: 2rem;"><a href="/dashboard.html" class="btn btn-primary"><i class="fas fa-arrow-left"></i> Дашбоард руу буцах</a></div>
+        <!-- Filters -->
+        <div class="report-filters">
+          <div class="filter-row">
+            <div class="filter-group">
+              <label>Хугацаа</label>
+              <select id="period-filter">
+                <option value="today">Өнөөдөр</option>
+                <option value="week">Энэ долоо хоног</option>
+                <option value="month" selected>Энэ сар</option>
+                <option value="year">Энэ жил</option>
+                <option value="custom">Тодорхой хугацаа</option>
+              </select>
+            </div>
+            <div class="filter-group" id="date-from-group" style="display: none;">
+              <label>Эхлэх огноо</label>
+              <input type="date" id="date-from">
+            </div>
+            <div class="filter-group" id="date-to-group" style="display: none;">
+              <label>Дуусах огноо</label>
+              <input type="date" id="date-to">
+            </div>
+            <div class="filter-group">
+              <label>&nbsp;</label>
+              <button class="btn btn-primary" id="apply-filter">
+                <i class="fas fa-filter"></i> Шүүх
+              </button>
+            </div>
+            <div class="filter-group">
+              <label>&nbsp;</label>
+              <button class="btn btn-success" id="export-btn">
+                <i class="fas fa-download"></i> Татаж авах
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Statistics Overview -->
+        <div class="stats-grid" id="stats-container">
+          <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Уншиж байна...</p>
+          </div>
+        </div>
+
+        <!-- Accident Trends Chart -->
+        <div class="chart-container">
+          <div class="chart-header">
+            <h3 class="chart-title">Ослын чиг хандлага</h3>
+            <div>
+              <button class="btn btn-sm btn-outline" id="chart-type-line">
+                <i class="fas fa-chart-line"></i>
+              </button>
+              <button class="btn btn-sm btn-outline" id="chart-type-bar">
+                <i class="fas fa-chart-bar"></i>
+              </button>
+            </div>
+          </div>
+          <div id="accident-trend-chart" style="min-height: 300px;">
+            <div class="loading-spinner">
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reports by Status -->
+        <div class="chart-container">
+          <div class="chart-header">
+            <h3 class="chart-title">Төлөвөөр</h3>
+          </div>
+          <div id="status-chart" style="min-height: 250px;">
+            <div class="loading-spinner">
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- False Reports Table -->
+        <div class="report-table">
+          <div class="card-header">
+            <h3><i class="fas fa-flag"></i> Хуурмаг мэдээллүүд</h3>
+          </div>
+          <div class="card-body">
+            <table class="table" id="false-reports-table">
+              <thead>
+                <tr>
+                  <th>Огноо</th>
+                  <th>Осол</th>
+                  <th>Хэрэглэгч</th>
+                  <th>Шалтгаан</th>
+                  <th>Тайлбар</th>
+                </tr>
+              </thead>
+              <tbody id="false-reports-body">
+                <tr>
+                  <td colspan="5" style="text-align: center; padding: 2rem;">
+                    <div class="loading-spinner">
+                      <div class="spinner"></div>
+                      <p>Уншиж байна...</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
     </main>
   </div>
+
   <script src="/js/api.js"></script>
   <script src="/js/utils.js"></script>
   <script src="/js/auth.js"></script>
-  <script>if(requireAuth()){initUserInfo();initLogoutButton();}</script>
+  <script>
+    if (!requireAuth()) {
+      window.location.href = '/login.html';
+    }
+
+    // Initialize
+    initUserInfo();
+    initLogoutButton();
+
+    let currentPeriod = 'month';
+
+    // Period filter change
+    document.getElementById('period-filter').addEventListener('change', (e) => {
+      const isCustom = e.target.value === 'custom';
+      document.getElementById('date-from-group').style.display = isCustom ? 'block' : 'none';
+      document.getElementById('date-to-group').style.display = isCustom ? 'block' : 'none';
+    });
+
+    // Apply filter
+    document.getElementById('apply-filter').addEventListener('click', () => {
+      currentPeriod = document.getElementById('period-filter').value;
+      loadReportData();
+    });
+
+    // Export button
+    document.getElementById('export-btn').addEventListener('click', () => {
+      exportReport();
+    });
+
+    // Load data
+    async function loadReportData() {
+      try {
+        await Promise.all([
+          loadStatistics(),
+          loadAccidentTrends(),
+          loadStatusDistribution(),
+          loadFalseReports()
+        ]);
+      } catch (error) {
+        console.error('Error loading report data:', error);
+        showError('Тайлан татахад алдаа гарлаа');
+      }
+    }
+
+    // Load statistics
+    async function loadStatistics() {
+      try {
+        const response = await api.getDashboardStats();
+        const stats = response.data || {};
+
+        const statsHtml = `
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-title">Нийт ослууд</span>
+              <i class="fas fa-exclamation-triangle stat-icon"></i>
+            </div>
+            <div class="stat-value">${stats.accidents?.total || 0}</div>
+          </div>
+
+          <div class="stat-card success">
+            <div class="stat-header">
+              <span class="stat-title">Идэвхтэй</span>
+              <i class="fas fa-check-circle stat-icon"></i>
+            </div>
+            <div class="stat-value">${stats.accidents?.active || 0}</div>
+          </div>
+
+          <div class="stat-card warning">
+            <div class="stat-header">
+              <span class="stat-title">Өнөөдөр</span>
+              <i class="fas fa-calendar-day stat-icon"></i>
+            </div>
+            <div class="stat-value">${stats.accidents?.today || 0}</div>
+          </div>
+
+          <div class="stat-card danger">
+            <div class="stat-header">
+              <span class="stat-title">Хуурмаг мэдээлэл</span>
+              <i class="fas fa-flag stat-icon"></i>
+            </div>
+            <div class="stat-value">${stats.ai?.falseAlarms || 0}</div>
+          </div>
+
+          <div class="stat-card info">
+            <div class="stat-header">
+              <span class="stat-title">Идэвхтэй хэрэглэгч</span>
+              <i class="fas fa-users stat-icon"></i>
+            </div>
+            <div class="stat-value">${stats.users?.active || 0}</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-title">AI нарийвчлал</span>
+              <i class="fas fa-robot stat-icon"></i>
+            </div>
+            <div class="stat-value">${stats.ai?.accuracy || '0%'}</div>
+          </div>
+        `;
+
+        document.getElementById('stats-container').innerHTML = statsHtml;
+      } catch (error) {
+        console.error('Error loading statistics:', error);
+        document.getElementById('stats-container').innerHTML = '<p style="color: red;">Статистик татахад алдаа гарлаа</p>';
+      }
+    }
+
+    // Load accident trends (simplified - no charting library)
+    async function loadAccidentTrends() {
+      try {
+        const response = await api.getAccidents();
+        const accidents = response.data || [];
+
+        // Group by date
+        const trendData = {};
+        accidents.forEach(acc => {
+          const date = new Date(acc.accident_time).toLocaleDateString('mn-MN');
+          trendData[date] = (trendData[date] || 0) + 1;
+        });
+
+        // Create simple bar chart
+        const chartHtml = Object.entries(trendData)
+          .slice(-30) // Last 30 days
+          .map(([date, count]) => `
+            <div style="margin-bottom: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                <span style="width: 100px; font-size: 0.875rem;">${date}</span>
+                <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
+                  <div style="background: var(--primary); height: 100%; width: ${Math.min(count * 10, 100)}%; border-radius: 4px;"></div>
+                </div>
+                <span style="width: 30px; font-size: 0.875rem; font-weight: 500;">${count}</span>
+              </div>
+            </div>
+          `).join('');
+
+        document.getElementById('accident-trend-chart').innerHTML = chartHtml || '<p style="text-align: center; color: var(--secondary);">Мэдээлэл байхгүй</p>';
+      } catch (error) {
+        console.error('Error loading trends:', error);
+        document.getElementById('accident-trend-chart').innerHTML = '<p style="color: red;">Мэдээлэл татахад алдаа гарлаа</p>';
+      }
+    }
+
+    // Load status distribution
+    async function loadStatusDistribution() {
+      try {
+        const response = await api.getAccidents();
+        const accidents = response.data || [];
+
+        const total = accidents.length || 1;
+        const confirmed = accidents.filter(a => a.status === 'confirmed').length;
+        const pending = accidents.filter(a => a.status === 'reported').length;
+        const rejected = accidents.filter(a => a.status === 'false_alarm').length;
+
+        const chartHtml = `
+          <div style="padding: 1rem;">
+            <div style="margin-bottom: 1rem;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span><i class="fas fa-circle" style="color: var(--success);"></i> Баталгаажсан</span>
+                <span>${confirmed} (${(confirmed/total*100).toFixed(1)}%)</span>
+              </div>
+              <div style="background: #e9ecef; border-radius: 4px; height: 20px;">
+                <div style="background: var(--success); height: 100%; width: ${confirmed/total*100}%; border-radius: 4px;"></div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span><i class="fas fa-circle" style="color: var(--warning);"></i> Мэдээлсэн</span>
+                <span>${pending} (${(pending/total*100).toFixed(1)}%)</span>
+              </div>
+              <div style="background: #e9ecef; border-radius: 4px; height: 20px;">
+                <div style="background: var(--warning); height: 100%; width: ${pending/total*100}%; border-radius: 4px;"></div>
+              </div>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span><i class="fas fa-circle" style="color: var(--danger);"></i> Хуурмаг</span>
+                <span>${rejected} (${(rejected/total*100).toFixed(1)}%)</span>
+              </div>
+              <div style="background: #e9ecef; border-radius: 4px; height: 20px;">
+                <div style="background: var(--danger); height: 100%; width: ${rejected/total*100}%; border-radius: 4px;"></div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('status-chart').innerHTML = chartHtml;
+      } catch (error) {
+        console.error('Error loading status distribution:', error);
+        document.getElementById('status-chart').innerHTML = '<p style="color: red;">Мэдээлэл татахад алдаа гарлаа</p>';
+      }
+    }
+
+    // Load false reports
+    async function loadFalseReports() {
+      try {
+        const response = await api.getAccidents({ status: 'false_alarm', limit: 20 });
+        const reports = response.data || [];
+
+        const tableHtml = reports.length > 0
+          ? reports.map(report => `
+              <tr>
+                <td>${formatDate(report.accident_time)}</td>
+                <td><a href="/accidents.html?id=${report.id}" style="color: var(--primary);">#${report.id}</a></td>
+                <td>${report.reported_by_name || 'Тодорхойгүй'}</td>
+                <td>${report.false_report_reason || '-'}</td>
+                <td>${report.description || '-'}</td>
+              </tr>
+            `).join('')
+          : '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--secondary);">Мэдээлэл байхгүй</td></tr>';
+
+        document.getElementById('false-reports-body').innerHTML = tableHtml;
+      } catch (error) {
+        console.error('Error loading false reports:', error);
+        document.getElementById('false-reports-body').innerHTML = '<tr><td colspan="5" style="color: red; text-align: center;">Мэдээлэл татахад алдаа гарлаа</td></tr>';
+      }
+    }
+
+    // Export report
+    async function exportReport() {
+      try {
+        const response = await api.getAccidents();
+        const accidents = response.data || [];
+
+        // Create CSV
+        let csv = 'ID,Огноо,Байршил,Төлөв,Тайлбар\n';
+        accidents.forEach(acc => {
+          csv += `${acc.id},"${formatDate(acc.accident_time)}","${acc.latitude},${acc.longitude}","${acc.status}","${(acc.description || '').replace(/"/g, '""')}"\n`;
+        });
+
+        // Download
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `accidents_report_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+
+        showSuccess('Тайланг амжилттай татлаа');
+      } catch (error) {
+        console.error('Error exporting report:', error);
+        showError('Тайлан татахад алдаа гарлаа');
+      }
+    }
+
+    // Helper: Format date
+    function formatDate(dateString) {
+      return new Date(dateString).toLocaleString('mn-MN');
+    }
+
+    // Helper: Show success message
+    function showSuccess(message) {
+      alert(message);
+    }
+
+    // Helper: Show error message
+    function showError(message) {
+      alert(message);
+    }
+
+    // Load initial data
+    loadReportData();
+  </script>
 </body>
 </html>
