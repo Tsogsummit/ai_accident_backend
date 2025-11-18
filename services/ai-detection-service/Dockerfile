@@ -19,11 +19,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Download YOLOv8 model (optional, will download on first run if not present)
+# Copy YOLOv8m model
 RUN mkdir -p /app/models
+COPY models/yolov8m.pt /app/models/yolov8m.pt
 
 ENV PORT=3004 \
-    MODEL_PATH=/app/models/yolov8n.pt \
+    MODEL_PATH=/app/models/yolov8m.pt \
+    AI_CONFIDENCE_THRESHOLD=0.30 \
+    AI_IOU_THRESHOLD=0.45 \
+    AI_MAX_DETECTIONS=300 \
     PYTHONUNBUFFERED=1
 
 EXPOSE 3004
