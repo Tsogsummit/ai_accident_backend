@@ -430,7 +430,7 @@ async function notifyNearbyUsers(accident, radiusMeters) {
     }
     if (nearbyUsers.length > 0) {
       try {
-        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http:
+        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
         const axios = require('axios');
         await axios.post(
           `${notificationServiceUrl}/notifications/send`,

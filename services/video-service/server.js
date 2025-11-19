@@ -108,7 +108,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     await fs.rename(file.path, finalPath);
     console.log(`✅ File saved: ${finalPath}`);
     await client.query('COMMIT');
-    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http:
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-service:3004';
     const relativeFilePath = fileName; 
     triggerAIDetection(video.id, userId, relativeFilePath, parseFloat(latitude), parseFloat(longitude), description || 'Хэрэглэгчээс бичигдсэн бичлэг')
       .catch(err => {
@@ -312,7 +312,7 @@ app.delete('/videos/:id', async (req, res) => {
   }
 });
 async function triggerAIDetection(videoId, userId, filePath, latitude, longitude, description) {
-  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http:
+  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-service:3004';
   try {
     console.log(`🤖 Triggering AI detection for video ${videoId}`);
     const response = await axios.post(`${aiServiceUrl}/detect/video`, {

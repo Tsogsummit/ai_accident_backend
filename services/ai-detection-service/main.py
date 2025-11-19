@@ -562,46 +562,80 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             cursor = db_conn.cursor()
             video_status = 'completed'
             cursor.execute("""
-                UPDATE videos 
-                SET status = %s, 
+                UPDATE videos
+                SET status = %s,
                     processing_completed_at = NOW()
                 WHERE id = %s
-                else:
-                    cursor.execute("""
-                        INSERT INTO ai_detections (
-                            video_id, confidence, detected_objects, status, processed_at
-                        )
-                        VALUES (%s, %s, %s, %s, NOW())
-                else:
-                    cursor.execute("""
-                        INSERT INTO ai_detections (
-                            video_id, confidence, detected_objects, status
-                        )
-                        VALUES (%s, %s, %s, %s)
+            """, (video_status, request.videoId))
+
+            cursor.execute("""
+                INSERT INTO ai_detections (
+                    video_id, confidence, detected_objects, status, processed_at
+                )
+                VALUES (%s, %s, %s, %s, NOW())
+            """, (request.videoId, confidence, detected_objects_json, 'completed'))
+
+            if has_accident and confidence >= 0.3:
+                cursor.execute("""
+                    UPDATE accidents
+                    SET status = 'confirmed', confirmed_at = NOW()
+                    WHERE video_id = %s AND status = 'reported'
+                    RETURNING id, latitude, longitude, description
+                """, (request.videoId,))
                 accident_result = cursor.fetchone()
                 if accident_result:
-                    accident_updated = True
                     accident_id = accident_result[0]
-                    accident_lat = float(accident_result[1])
-                    accident_lon = float(accident_result[2])
-                    accident_desc = accident_result[3] or 'AI-аар баталгаажсан осол'
+                    logger.info(f"✅ Accident {accident_id} confirmed")
             else:
                 if confidence < 0.3:
                     cursor.execute("""
-                        UPDATE accidents 
+                        UPDATE accidents
                         SET status = 'false_alarm'
                         WHERE video_id = %s AND status = 'reported'
+                    """, (request.videoId,))
+
             db_conn.commit()
             cursor.close()
-            logger.info(f"✅ Updated video {request.videoId} status to 'failed'")
+            logger.info(f"✅ Video {request.videoId} processing completed")
         except Exception as db_err:
             logger.error(f"❌ Failed to update video status on error: {db_err}", exc_info=True)
         finally:
             if db_conn:
                 try:
                     db_conn.close()
-                except:
+                except Exception:
                     pass
+
+        return {
+            "status": "success",
+            "videoId": request.videoId,
+            "hasAccident": has_accident,
+            "confidence": float(confidence),
+            "detected_objects": detected_objects_data
+        }
+    except Exception as e:
+        logger.error(f"❌ Video processing failed: {str(e)}", exc_info=True)
+        if db_conn:
+            try:
+                cursor = db_conn.cursor()
+                cursor.execute("""
+                    UPDATE videos
+                    SET status = 'failed', error_message = %s
+                    WHERE id = %s
+                """, (str(e), request.videoId))
+                db_conn.commit()
+                cursor.close()
+                logger.info(f"✅ Updated video {request.videoId} status to 'failed'")
+            except Exception as db_err:
+                logger.error(f"❌ Failed to update video status on error: {db_err}", exc_info=True)
+            finally:
+                if db_conn:
+                    try:
+                        db_conn.close()
+                    except Exception:
+                        pass
+        raise
+
 @app.get("/health")
 async def health():
     return {
@@ -671,10 +705,29 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
             )
             cursor = conn.cursor()
             cursor.execute("""
-                UPDATE videos 
+                UPDATE videos
                 SET status = 'processing', processing_started_at = NOW()
                 WHERE id = %s
-    Frame-ээс осол илрүүлэх (Camera real-time detection)
+            """, (request.videoId,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to update video status: {str(e)}")
+
+        background_tasks.add_task(process_video_detection, request, video_path)
+
+        return {
+            "status": "processing",
+            "message": "Video detection started in background",
+            "videoId": request.videoId
+        }
+    except Exception as e:
+        logger.error(f"❌ Error starting video detection: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
     return {
         "service": "AI Detection Service",
         "version": "3.0.0-yolov8m",

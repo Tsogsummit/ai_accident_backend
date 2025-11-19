@@ -12,15 +12,15 @@ if (JWT_SECRET === 'your-secret-key' && process.env.NODE_ENV === 'production') {
   process.exit(1);
 }
 const SERVICES = {
-  user: process.env.USER_SERVICE_URL || 'http:
-  accident: process.env.ACCIDENT_SERVICE_URL || 'http:
-  video: process.env.VIDEO_SERVICE_URL || 'http:
-  ai: process.env.AI_SERVICE_URL || 'http:
-  notification: process.env.NOTIFICATION_SERVICE_URL || 'http:
-  map: process.env.MAP_SERVICE_URL || 'http:
-  report: process.env.REPORT_SERVICE_URL || 'http:
-  camera: process.env.CAMERA_SERVICE_URL || 'http:
-  admin: process.env.ADMIN_SERVICE_URL || 'http:
+  user: process.env.USER_SERVICE_URL || 'http://user-service:3001',
+  accident: process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002',
+  video: process.env.VIDEO_SERVICE_URL || 'http://video-service:3003',
+  ai: process.env.AI_SERVICE_URL || 'http://ai-service:3004',
+  notification: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005',
+  map: process.env.MAP_SERVICE_URL || 'http://map-service:3006',
+  report: process.env.REPORT_SERVICE_URL || 'http://report-service:3007',
+  camera: process.env.CAMERA_SERVICE_URL || 'http://camera-service:3009',
+  admin: process.env.ADMIN_SERVICE_URL || 'http://admin-service:3008'
 };
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -222,11 +222,11 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('⚡ Rate limiting: Enabled');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('\n📱 Android Emulator URLs:');
-  console.log('   Development: http:
-  console.log('   Real device: http:
+  console.log('   Development: http://10.0.2.2:3000');
+  console.log('   Real device: http://<YOUR_LOCAL_IP>:3000');
   console.log('\n💡 Test endpoints:');
-  console.log(`   Health: http:
-  console.log(`   Login:  POST http:
+  console.log(`   Health: http://localhost:${PORT}/health`);
+  console.log(`   Login:  POST http://localhost:${PORT}/auth/login`);
   console.log('═══════════════════════════════════════════════════════════\n');
 });
 const shutdown = async () => {

@@ -49,7 +49,7 @@ redis.on('error', (err) => console.error('Redis error:', err));
 redis.on('connect', () => console.log('✅ Redis connected'));
 const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
 const BCRYPT_ROUNDS = 12;
-const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http:
+const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http://camera-service:3009';
 const authenticateAdmin = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -290,7 +290,7 @@ app.put('/admin/accidents/:id/status', authenticateAdmin, async (req, res) => {
         `, [id]);
         const userIds = notifiedUsersResult.rows.map(row => row.user_id);
         if (userIds.length > 0) {
-          const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http:
+          const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
           const axios = require('axios');
           await axios.post(
             `${notificationServiceUrl}/notifications/send`,
@@ -552,13 +552,13 @@ app.post('/admin/cameras/:id/restart', authenticateAdmin, async (req, res) => {
 app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
   const isDev = process.env.NODE_ENV !== 'production';
   const services = [
-    { name: 'User Service', url: process.env.USER_SERVICE_URL || 'http:
-    { name: 'Accident Service', url: process.env.ACCIDENT_SERVICE_URL || 'http:
-    { name: 'Video Service', url: process.env.VIDEO_SERVICE_URL || 'http:
-    { name: 'AI Service', url: process.env.AI_SERVICE_URL || 'http:
-    { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http:
-    { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http:
-    { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http:
+    { name: 'User Service', url: process.env.USER_SERVICE_URL || 'http://user-service:3001' },
+    { name: 'Accident Service', url: process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002' },
+    { name: 'Video Service', url: process.env.VIDEO_SERVICE_URL || 'http://video-service:3003' },
+    { name: 'AI Service', url: process.env.AI_SERVICE_URL || 'http://ai-service:3004' },
+    { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005' },
+    { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http://map-service:3006' },
+    { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http://report-service:3007' },
     { name: 'Camera Service', url: CAMERA_SERVICE_URL },
   ];
   const healthChecks = await Promise.all(

@@ -127,7 +127,7 @@ app.get('/maps/geocode', async (req, res) => {
       });
     }
     const response = await axios.get(
-      'https:
+      'https://maps.googleapis.com/maps/api/geocode/json',
       {
         params: {
           latlng: `${lat},${lng}`,
@@ -175,7 +175,7 @@ app.get('/maps/reverse-geocode', async (req, res) => {
       });
     }
     const response = await axios.get(
-      'https:
+      'https://maps.googleapis.com/maps/api/geocode/json',
       {
         params: {
           address: address,
@@ -218,7 +218,7 @@ app.get('/maps/directions', async (req, res) => {
       });
     }
     const response = await axios.get(
-      'https:
+      'https://maps.googleapis.com/maps/api/directions/json',
       {
         params: {
           origin: `${originLat},${originLng}`,
@@ -264,7 +264,7 @@ app.get('/maps/nearby-places', async (req, res) => {
       });
     }
     const response = await axios.get(
-      'https:
+      'https://maps.googleapis.com/maps/api/place/nearbysearch/json',
       {
         params: {
           location: `${lat},${lng}`,
