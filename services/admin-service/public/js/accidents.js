@@ -73,8 +73,7 @@ function renderAccidentsTable(accidents) {
         <td>${a.camera_name || '-'}</td>
         <td><div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
           <button class="btn btn-sm btn-primary" onclick="viewAccidentDetails(${a.id})" title="Дэлгэрэнгүй"><i class="fas fa-eye"></i></button>
-          ${needsReview && a.status !== 'false_alarm' ? `<button class="btn btn-sm btn-warning" onclick="showStatusUpdateDialog(${a.id}, ${a.false_report_count})" title="Төлөв шинэчлэх (${a.false_report_count} хуурмаг мэдээлэл)"><i class="fas fa-edit"></i></button>` : ''}
-          ${a.status !== 'resolved' && !needsReview ? `<button class="btn btn-sm btn-success" onclick="updateAccidentStatus(${a.id}, 'resolved')" title="Шийдэгдсэн"><i class="fas fa-check"></i></button>` : ''}
+          ${needsReview && a.status !== 'false_alarm' && a.status !== 'resolved' ? `<button class="btn btn-sm btn-warning" onclick="showStatusUpdateDialog(${a.id}, ${a.false_report_count})" title="Төлөв шинэчлэх (${a.false_report_count} хуурмаг мэдээлэл)"><i class="fas fa-edit"></i></button>` : ''}
         </div></td>
       </tr>
     `;

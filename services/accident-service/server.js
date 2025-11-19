@@ -1,15 +1,14 @@
-// Accident service
-
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
 const { Server } = require('socket.io');
 const http = require('http');
+const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult, query } = require('express-validator');
 const jwt = require('jsonwebtoken');
-
+const cron = require('node-cron');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -18,14 +17,15 @@ const io = new Server(server, {
     credentials: true 
   }
 });
-
 const PORT = process.env.PORT || 3002;
-
-// Security middleware
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
-
-// User-based rate limiting
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -39,8 +39,6 @@ const limiter = rateLimit({
   }
 });
 app.use('/api/', limiter);
-
-// PostgreSQL database connection pool
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -51,16 +49,12 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
-
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
 });
-
 pool.on('connect', () => {
   console.log('✅ PostgreSQL connected');
 });
-
-// Redis client for caching and location storage
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -77,27 +71,21 @@ const redis = new Redis({
   maxRetriesPerRequest: 3,
   enableOfflineQueue: false,
 });
-
 redis.on('error', (err) => {
   console.error('Redis error:', err.message);
 });
-
 redis.on('connect', () => {
   console.log('✅ Redis connected');
 });
-
-// JWT Authentication Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-
   if (!token) {
     return res.status(401).json({ 
       success: false, 
       error: 'Нэвтрэх шаардлагатай' 
     });
   }
-
   jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
     if (err) {
       return res.status(403).json({ 
@@ -109,8 +97,6 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
-
-// Validation error handling middleware
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -121,19 +107,14 @@ const validate = (req, res, next) => {
   }
   next();
 };
-
-// Socket.IO connection management
 const userSockets = new Map();
-
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-
   socket.on('register', (userId) => {
     userSockets.set(userId.toString(), socket.id);
     socket.userId = userId;
     console.log(`User ${userId} registered`);
   });
-
   socket.on('update-location', async ({ latitude, longitude }) => {
     if (socket.userId) {
       try {
@@ -147,7 +128,6 @@ io.on('connection', (socket) => {
       }
     }
   });
-
   socket.on('disconnect', () => {
     if (socket.userId) {
       userSockets.delete(socket.userId.toString());
@@ -155,41 +135,39 @@ io.on('connection', (socket) => {
     }
   });
 });
-
-// ACCIDENTS API
-
-app.get('/accidents', 
+app.get('/accidents',
   authenticateToken,
   [
     query('status').optional().isIn(['reported', 'confirmed', 'resolved', 'false_alarm']),
     query('limit').optional().isInt({ min: 1, max: 100 }),
     query('offset').optional().isInt({ min: 0 }),
+    query('forceRefresh').optional().isBoolean(),
+    query('userOnly').optional().isBoolean(), 
   ],
   validate,
   async (req, res) => {
     try {
-      const { status, limit = 100, offset = 0 } = req.query;
-
-      // Cache key
-      const cacheKey = `accidents:${status || 'all'}:${limit}:${offset}`;
-      
-      // Check cache
-      try {
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-          return res.json({
-            success: true,
-            source: 'cache',
-            data: JSON.parse(cached),
-          });
+      const { status, limit = 100, offset = 0, forceRefresh, userOnly } = req.query;
+      const cacheKey = `accidents:${status || 'all'}:${userOnly ? 'user' : 'all'}:${limit}:${offset}`;
+      if (!forceRefresh || forceRefresh === 'false') {
+        try {
+          const cached = await redis.get(cacheKey);
+          if (cached) {
+            return res.json({
+              success: true,
+              source: 'cache',
+              data: JSON.parse(cached),
+            });
+          }
+        } catch (redisErr) {
+          console.warn('Redis cache read failed:', redisErr.message);
         }
-      } catch (redisErr) {
-        console.warn('Redis cache read failed:', redisErr.message);
       }
-
-      // Get current user ID from JWT token
       const currentUserId = req.user?.userId;
-
+      console.log('🔍 DEBUG getAllAccidents:');
+      console.log('  - userOnly parameter:', userOnly, 'type:', typeof userOnly);
+      console.log('  - currentUserId from JWT:', currentUserId);
+      console.log('  - req.user:', req.user);
       let queryText = `
         SELECT
           a.*,
@@ -210,39 +188,40 @@ app.get('/accidents',
         LEFT JOIN ai_detections aid ON v.id = aid.video_id
         WHERE 1=1
       `;
-      
-      const params = [currentUserId]; // ✅ First param is current user ID
-      let paramIndex = 2; // ✅ Start from $2 for other params
-
+      const params = [currentUserId]; 
+      let paramIndex = 2; 
+      if (userOnly === 'true' || userOnly === true) {
+        console.log('  ✅ APPLYING userOnly filter - user_id =', currentUserId);
+        queryText += ` AND a.user_id = $${paramIndex++}`;
+        params.push(currentUserId);
+      } else {
+        console.log('  ❌ NOT applying userOnly filter');
+      }
       if (status) {
         queryText += ` AND a.status = $${paramIndex++}`;
         params.push(status);
       }
-
       queryText += `
         GROUP BY a.id, u.name, u.phone, c.name
         ORDER BY a.accident_time DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}
       `;
-
       params.push(parseInt(limit), parseInt(offset));
-
+      console.log('  - Final SQL params:', params);
+      console.log('  - SQL includes user filter:', queryText.includes('a.user_id = $2') || queryText.includes('a.user_id = $3'));
       const result = await pool.query(queryText, params);
-
-      // Store in cache
+      console.log('  - Query returned', result.rows.length, 'accidents');
       try {
         await redis.setex(cacheKey, 300, JSON.stringify(result.rows));
       } catch (redisErr) {
         console.warn('Redis cache write failed:', redisErr.message);
       }
-
       res.json({
         success: true,
         source: 'database',
         data: result.rows,
         total: result.rowCount,
       });
-
     } catch (error) {
       console.error('GET /accidents error:', error);
       res.status(500).json({ 
@@ -253,7 +232,6 @@ app.get('/accidents',
     }
   }
 );
-
 app.post('/accidents',
   authenticateToken,
   [
@@ -266,7 +244,6 @@ app.post('/accidents',
   validate,
   async (req, res) => {
     const client = await pool.connect();
-    
     try {
       const {
         latitude,
@@ -275,11 +252,8 @@ app.post('/accidents',
         videoId,
         imageUrl,
       } = req.body;
-
       const userId = req.user.userId;
-
       await client.query('BEGIN');
-
       const accidentResult = await client.query(`
         INSERT INTO accidents (
           user_id, latitude, longitude, description, 
@@ -288,18 +262,12 @@ app.post('/accidents',
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         RETURNING *
       `, [userId, latitude, longitude, description, 'reported', 'user', videoId, imageUrl]);
-
       const accident = accidentResult.rows[0];
-
-      // Store location
       await client.query(`
         INSERT INTO locations (user_id, latitude, longitude, timestamp)
         VALUES ($1, $2, $3, NOW())
       `, [userId, latitude, longitude]);
-
       await client.query('COMMIT');
-
-      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) {
@@ -308,18 +276,14 @@ app.post('/accidents',
       } catch (redisErr) {
         console.warn('Cache clear failed:', redisErr.message);
       }
-
-      // Notify nearby users
       notifyNearbyUsers(accident, 5000).catch(err => 
         console.error('Notification error:', err)
       );
-
       res.status(201).json({
         success: true,
         message: 'Осол амжилттай бүртгэгдлээ',
         data: accident,
       });
-
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('POST /accidents error:', error);
@@ -333,23 +297,18 @@ app.post('/accidents',
     }
   }
 );
-
 app.get('/accidents/:id',
   authenticateToken,
   async (req, res) => {
     try {
       const { id } = req.params;
-
       if (!/^\d+$/.test(id)) {
         return res.status(400).json({
           success: false,
           error: 'Буруу ID формат'
         });
       }
-
-      // Get current user ID from JWT token
       const currentUserId = req.user?.userId;
-
       const result = await pool.query(`
         SELECT a.*,
                u.name as reported_by_name,
@@ -371,19 +330,16 @@ app.get('/accidents/:id',
         LEFT JOIN cameras c ON a.camera_id = c.id
         WHERE a.id = $1
       `, [id, currentUserId]);
-
       if (result.rows.length === 0) {
         return res.status(404).json({ 
           success: false, 
           error: 'Осол олдсонгүй' 
         });
       }
-
       res.json({
         success: true,
         data: result.rows[0],
       });
-
     } catch (error) {
       console.error('GET /accidents/:id error:', error);
       res.status(500).json({ 
@@ -393,7 +349,6 @@ app.get('/accidents/:id',
     }
   }
 );
-
 app.put('/accidents/:id/status',
   authenticateToken,
   [
@@ -404,22 +359,18 @@ app.put('/accidents/:id/status',
     try {
       const { id } = req.params;
       const { status } = req.body;
-
       const result = await pool.query(`
         UPDATE accidents 
         SET status = $1, updated_at = NOW()
         WHERE id = $2
         RETURNING *
       `, [status, id]);
-
       if (result.rows.length === 0) {
         return res.status(404).json({ 
           success: false, 
           error: 'Осол олдсонгүй' 
         });
       }
-
-      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) {
@@ -428,13 +379,11 @@ app.put('/accidents/:id/status',
       } catch (redisErr) {
         console.warn('Cache clear failed:', redisErr.message);
       }
-
       res.json({
         success: true,
         message: 'Төлөв шинэчлэгдлээ',
         data: result.rows[0],
       });
-
     } catch (error) {
       console.error('PUT /accidents/:id/status error:', error);
       res.status(500).json({ 
@@ -444,19 +393,14 @@ app.put('/accidents/:id/status',
     }
   }
 );
-
-// Notify nearby users about new accident
-
 async function notifyNearbyUsers(accident, radiusMeters) {
   try {
     const keys = await redis.keys('user:*:location');
     const nearbyUsers = [];
-    
     for (const key of keys) {
       try {
         const locationData = await redis.get(key);
         if (!locationData) continue;
-        
         const { latitude, longitude } = JSON.parse(locationData);
         const distance = calculateDistance(
           accident.latitude,
@@ -464,7 +408,6 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           latitude,
           longitude
         );
-        
         if (distance <= radiusMeters) {
           const userId = key.split(':')[1];
           nearbyUsers.push(userId);
@@ -473,8 +416,6 @@ async function notifyNearbyUsers(accident, radiusMeters) {
         console.error('Error processing user location:', err);
       }
     }
-
-    // Send notifications via Socket.IO
     for (const userId of nearbyUsers) {
       const socketId = userSockets.get(userId);
       if (socketId) {
@@ -487,13 +428,10 @@ async function notifyNearbyUsers(accident, radiusMeters) {
         });
       }
     }
-
-    // Also send push notifications via notification service
     if (nearbyUsers.length > 0) {
       try {
-        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
+        const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http:
         const axios = require('axios');
-        
         await axios.post(
           `${notificationServiceUrl}/notifications/send`,
           {
@@ -510,48 +448,34 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           },
           { timeout: 10000 }
         );
-        
         console.log(`✅ Push notifications sent via notification service`);
       } catch (notifyErr) {
         console.error('⚠️ Failed to send push notifications:', notifyErr.message);
-        // Don't fail the whole process if push notifications fail
       }
     }
-
     console.log(`Notifications sent to ${nearbyUsers.length} users`);
-
   } catch (error) {
     console.error('Notify error:', error);
     throw error;
   }
 }
-
-// POST /accidents/:id/notify - Notify nearby users about an accident (can be called by AI service)
 app.post('/accidents/:id/notify', async (req, res) => {
   try {
     const { id } = req.params;
     const { radiusMeters = 5000 } = req.body;
-
-    // Get accident details
     const result = await pool.query(`
       SELECT * FROM accidents WHERE id = $1
     `, [id]);
-
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Осол олдсонгүй'
       });
     }
-
     const accident = result.rows[0];
-
-    // Notify nearby users (async, don't wait)
     notifyNearbyUsers(accident, radiusMeters).catch(err => {
       console.error('Notification error:', err);
     });
-
-    // Clear cache
     try {
       const keys = await redis.keys('accidents:*');
       const mapKeys = await redis.keys('map_markers:*');
@@ -564,13 +488,11 @@ app.post('/accidents/:id/notify', async (req, res) => {
     } catch (redisErr) {
       console.warn('Cache clear failed:', redisErr.message);
     }
-
     res.json({
       success: true,
       message: 'Мэдэгдэл илгээгдлээ',
       accidentId: accident.id
     });
-
   } catch (error) {
     console.error('POST /accidents/:id/notify error:', error);
     res.status(500).json({
@@ -579,23 +501,18 @@ app.post('/accidents/:id/notify', async (req, res) => {
     });
   }
 });
-
-// Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Earth radius in meter
+  const R = 6371e3; 
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
   const Δλ = (lon2 - lon1) * Math.PI / 180;
-
   const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
             Math.cos(φ1) * Math.cos(φ2) *
             Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
   return R * c;
 }
-
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
@@ -603,10 +520,7 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   };
-
   let hasError = false;
-
-  // Check database
   try {
     await pool.query('SELECT 1');
     health.database = 'connected';
@@ -616,8 +530,6 @@ app.get('/health', async (req, res) => {
     health.status = 'unhealthy';
     hasError = true;
   }
-
-  // Check Redis
   try {
     await redis.ping();
     health.redis = 'connected';
@@ -627,18 +539,13 @@ app.get('/health', async (req, res) => {
     health.status = 'unhealthy';
     hasError = true;
   }
-
-  // Socket.IO status
   health.socketio = {
     connected: io.engine.clientsCount,
     registered: userSockets.size
   };
-
   const statusCode = hasError ? 503 : 200;
   res.status(statusCode).json(health);
 });
-
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -648,35 +555,63 @@ app.use((err, req, res, next) => {
       : err.message,
   });
 });
-
-// Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
-  
-  // Close server
   server.close(() => {
     console.log('HTTP server closed');
   });
-  
-  // Close Socket.IO connections
   io.close(() => {
     console.log('Socket.IO closed');
   });
-  
-  // Close database and Redis
   await pool.end();
   await redis.quit();
-  
   process.exit(0);
 });
-
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down...');
   await pool.end();
   await redis.quit();
   process.exit(0);
 });
-
+cron.schedule('*/10 * * * *', async () => {
+  try {
+    console.log('🕐 Running auto-resolution check...');
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const result = await pool.query(`
+      UPDATE accidents
+      SET status = 'resolved', updated_at = NOW()
+      WHERE id IN (
+        SELECT a.id
+        FROM accidents a
+        LEFT JOIN false_reports fr ON a.id = fr.accident_id
+        WHERE a.status IN ('confirmed', 'reported')
+          AND a.accident_time < $1
+        GROUP BY a.id
+        HAVING COUNT(fr.id) = 0
+      )
+      RETURNING id, accident_time, status
+    `, [oneHourAgo]);
+    if (result.rowCount > 0) {
+      console.log(`✅ Auto-resolved ${result.rowCount} accident(s) older than 1 hour`);
+      result.rows.forEach(acc => {
+        console.log(`   - Accident #${acc.id} (time: ${acc.accident_time})`);
+      });
+      try {
+        const keys = await redis.keys('accidents:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } catch (redisErr) {
+        console.warn('Cache clear failed:', redisErr.message);
+      }
+    } else {
+      console.log('   No accidents to auto-resolve');
+    }
+  } catch (error) {
+    console.error('❌ Auto-resolution error:', error.message);
+  }
+});
+console.log('✅ Auto-resolution scheduler started (every 10 minutes)');
 server.listen(PORT, () => {
   console.log(`Accident Service running on port ${PORT}`);
   console.log(`Socket.IO ready for WebSocket connections`);
@@ -684,6 +619,6 @@ server.listen(PORT, () => {
   console.log(`Rate limiting: User-based (100 req/min)`);
   console.log(`Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
   console.log(`Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+  console.log(`Auto-resolution: Enabled (1 hour threshold)`);
 });
-
 module.exports = app;

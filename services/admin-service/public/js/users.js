@@ -39,7 +39,7 @@ async function loadUsers() {
 function renderUsersTable(users) {
   const tbody = document.getElementById('users-table-body');
   if (!users || !users.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 2rem;"><i class="fas fa-inbox" style="font-size: 2rem;"></i><p>Хэрэглэгч олдсонгүй</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding: 2rem;"><i class="fas fa-inbox" style="font-size: 2rem;"></i><p>Хэрэглэгч олдсонгүй</p></td></tr>';
     return;
   }
 
@@ -51,7 +51,6 @@ function renderUsersTable(users) {
         <div><div style="font-weight: 600;">${escapeHtml(u.name || '-')}</div><div style="font-size: 0.875rem; color: var(--secondary);">${u.phone || '-'}</div></div>
       </div></td>
       <td>${u.email || '-'}</td>
-      <td>${getUserStatusBadge(u.status)}</td>
       <td><div style="text-align: center;"><div style="font-weight: 600; color: var(--primary);">${u.total_reports || 0}</div><div style="font-size: 0.75rem; color: var(--success);">✓ ${u.confirmed_reports || 0}</div></div></td>
       <td>${formatDate(u.created_at)}</td>
       <td><button class="btn btn-sm btn-primary" onclick="viewUserDetails(${u.id})"><i class="fas fa-eye"></i></button></td>
