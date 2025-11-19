@@ -21,7 +21,7 @@ COPY . .
 
 # Copy YOLOv8m model
 RUN mkdir -p /app/models
-COPY models/yolov8m.pt /app/models/yolov8m.pt
+COPY yolov8m.pt /app/models/yolov8m.pt
 
 ENV PORT=3004 \
     MODEL_PATH=/app/models/yolov8m.pt \
