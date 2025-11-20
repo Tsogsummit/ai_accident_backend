@@ -19,9 +19,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Copy YOLOv8m model
+# Copy models
 RUN mkdir -p /app/models
 COPY models/yolov8m.pt /app/models/yolov8m.pt
+COPY models/accident_classifier.pt /app/models/accident_classifier.pt
 
 ENV PORT=3004 \
     MODEL_PATH=/app/models/yolov8m.pt \

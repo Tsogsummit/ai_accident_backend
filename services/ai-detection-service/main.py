@@ -21,6 +21,9 @@ import base64
 from io import BytesIO
 from PIL import Image
 import requests
+import torch
+import torch.nn as nn
+from torchvision import transforms, models
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -345,6 +348,8 @@ class OptimizedVehicleTracker:
             (indicator_counts.get('erratic_trajectory', 0) > 8 and final_confidence > 0.40) or
             (accident_frame_ratio > 0.65 and final_confidence > 0.35)
         )
+
+        logger.info(f"📈 Accident analysis: confidence={final_confidence:.2f}, frame_ratio={accident_frame_ratio:.2f}, collisions={indicator_counts.get('collision', 0)}, erratic={indicator_counts.get('erratic_trajectory', 0)}, clustering={indicator_counts.get('vehicle_clustering', 0)}")
         return {
             'has_accident': has_accident,
             'confidence': final_confidence,
@@ -407,6 +412,60 @@ except Exception as e:
     logger.error(f"Failed to load YOLOv8m: {e}")
     logger.info("⚠️ Fallback to YOLOv8n")
     model = YOLO('yolov8n.pt')
+
+# Load accident classifier
+classifier_model = None
+classifier_transform = None
+classifier_device = None
+CLASSIFIER_PATH = '/app/models/accident_classifier.pt'
+
+try:
+    if os.path.exists(CLASSIFIER_PATH):
+        classifier_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        checkpoint = torch.load(CLASSIFIER_PATH, map_location=classifier_device)
+
+        classifier_model = models.resnet18(pretrained=False)
+        classifier_model.fc = nn.Linear(classifier_model.fc.in_features, 2)
+        classifier_model.load_state_dict(checkpoint['model_state_dict'])
+        classifier_model = classifier_model.to(classifier_device)
+        classifier_model.eval()
+
+        classifier_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+        logger.info(f"✅ Accident classifier loaded (accuracy: {checkpoint.get('accuracy', 'N/A')}%)")
+    else:
+        logger.warning(f"⚠️ Classifier not found at {CLASSIFIER_PATH}, using YOLO-only detection")
+except Exception as e:
+    logger.error(f"Failed to load classifier: {e}")
+    classifier_model = None
+
+def classify_frame(frame):
+    """Classify a single frame as accident or non-accident using the trained classifier."""
+    if classifier_model is None:
+        return None, 0.0
+
+    try:
+        # Convert BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        input_tensor = classifier_transform(rgb_frame).unsqueeze(0).to(classifier_device)
+
+        with torch.no_grad():
+            outputs = classifier_model(input_tensor)
+            probabilities = torch.softmax(outputs, dim=1)
+            predicted_class = outputs.argmax(1).item()
+            confidence = probabilities[0][predicted_class].item()
+
+        # Class 0 = Accident, Class 1 = Non-Accident (based on folder order)
+        is_accident = predicted_class == 0
+        return is_accident, confidence
+    except Exception as e:
+        logger.error(f"Classification error: {e}")
+        return None, 0.0
 def extract_frames(video_path: str, interval: float = 0.5, max_frames: int = 500):
     frames = []
     cap = cv2.VideoCapture(video_path)
@@ -427,7 +486,72 @@ def extract_frames(video_path: str, interval: float = 0.5, max_frames: int = 500
     cap.release()
     logger.info(f"✂️ Extracted {len(frames)} frames (interval: {interval}s)")
     return frames
+def detect_motion(frames, threshold=5.0):
+    """Detect if video has significant motion between frames."""
+    if len(frames) < 2:
+        return False, 0.0
+
+    motion_scores = []
+    for i in range(1, min(len(frames), 10)):  # Check first 10 frames
+        prev_gray = cv2.cvtColor(frames[i-1], cv2.COLOR_BGR2GRAY)
+        curr_gray = cv2.cvtColor(frames[i], cv2.COLOR_BGR2GRAY)
+
+        # Calculate frame difference
+        diff = cv2.absdiff(prev_gray, curr_gray)
+        motion_score = np.mean(diff)
+        motion_scores.append(motion_score)
+
+    avg_motion = np.mean(motion_scores) if motion_scores else 0
+    has_motion = avg_motion > threshold
+
+    return has_motion, avg_motion
+
 def detect_accident(frames, confidence_threshold=0.30):
+    # First, detect if video has motion
+    has_motion, motion_score = detect_motion(frames)
+    logger.info(f"🎬 Motion detection: has_motion={has_motion}, score={motion_score:.2f}")
+
+    # For static videos (post-accident recordings), rely primarily on classifier
+    if not has_motion and classifier_model is not None:
+        logger.info("📸 Static video detected - using classifier-only mode")
+
+        classifier_accident_frames = 0
+        classifier_total_confidence = 0.0
+        classifier_frame_indices = []
+
+        for frame_idx, frame in enumerate(frames):
+            is_accident, conf = classify_frame(frame)
+            if is_accident:
+                classifier_accident_frames += 1
+                classifier_total_confidence += conf
+                classifier_frame_indices.append(frame_idx)
+
+        accident_ratio = classifier_accident_frames / len(frames) if frames else 0
+        avg_confidence = classifier_total_confidence / classifier_accident_frames if classifier_accident_frames > 0 else 0
+
+        # For static videos, use lower threshold since user is recording aftermath
+        has_accident = accident_ratio > 0.2 and avg_confidence > 0.5
+        final_confidence = avg_confidence if has_accident else accident_ratio * avg_confidence
+
+        logger.info(f"🤖 Classifier (static): {classifier_accident_frames}/{len(frames)} frames, avg_conf={avg_confidence:.2f}")
+
+        return {
+            'hasAccident': has_accident,
+            'confidence': float(final_confidence),
+            'totalFrames': len(frames),
+            'confirmedTracks': 0,
+            'suspiciousFrames': classifier_frame_indices,
+            'indicatorCounts': {'classifier_detections': classifier_accident_frames},
+            'statistics': {
+                'accident_ratio': accident_ratio,
+                'avg_confidence': avg_confidence,
+                'motion_score': motion_score,
+                'method': 'classifier_static'
+            }
+        }
+
+    # For videos with motion, use combined YOLO + classifier approach
+    # Initialize YOLO tracker for vehicle detection
     tracker = OptimizedVehicleTracker(
         confidence_threshold=confidence_threshold,
         max_age=3,
@@ -437,7 +561,17 @@ def detect_accident(frames, confidence_threshold=0.30):
         clustering_distance=80.0,
         erratic_angle_threshold=60.0
     )
+
+    total_detections = 0
+    vehicle_detections = 0
+
+    # Classifier results
+    classifier_accident_frames = 0
+    classifier_total_confidence = 0.0
+    classifier_frame_indices = []
+
     for frame_idx, frame in enumerate(frames):
+        # Run YOLO detection for vehicle tracking
         results = model(
             frame,
             conf=confidence_threshold,
@@ -453,6 +587,14 @@ def detect_accident(frames, confidence_threshold=0.30):
             confidences = boxes.conf.cpu().numpy()
             class_ids = boxes.cls.cpu().numpy()
             class_names = [model.names[int(cid)] for cid in class_ids]
+
+            total_detections += len(class_names)
+            vehicles = [c for c in class_names if c in ['car', 'truck', 'bus', 'motorcycle', 'bicycle']]
+            vehicle_detections += len(vehicles)
+
+            if frame_idx == 0:
+                logger.info(f"🔍 Frame 0 detections: {class_names}")
+
             tracker.process_frame(
                 boxes=box_coords,
                 confidences=confidences,
@@ -460,15 +602,87 @@ def detect_accident(frames, confidence_threshold=0.30):
                 class_names=class_names,
                 frame_idx=frame_idx
             )
-    accident_result = tracker.detect_accidents()
+
+        # Run classifier if available
+        if classifier_model is not None:
+            is_accident, conf = classify_frame(frame)
+            if is_accident:
+                classifier_accident_frames += 1
+                classifier_total_confidence += conf
+                classifier_frame_indices.append(frame_idx)
+
+    logger.info(f"📊 Total detections: {total_detections}, Vehicles: {vehicle_detections}")
+
+    # Get YOLO tracker results
+    yolo_result = tracker.detect_accidents()
     stats = tracker.get_statistics()
+
+    # Combine classifier and YOLO results
+    if classifier_model is not None and len(frames) > 0:
+        classifier_accident_ratio = classifier_accident_frames / len(frames)
+        classifier_avg_conf = classifier_total_confidence / classifier_accident_frames if classifier_accident_frames > 0 else 0
+
+        logger.info(f"🤖 Classifier: {classifier_accident_frames}/{len(frames)} frames as accident, avg_conf={classifier_avg_conf:.2f}")
+        logger.info(f"🎯 YOLO: has_accident={yolo_result['has_accident']}, confidence={yolo_result['confidence']:.2f}")
+
+        # Combined decision logic:
+        # - If classifier detects accident with high confidence, trust it
+        # - If YOLO detects collision/accidents, boost confidence
+        # - Combine both signals for final decision
+
+        classifier_detected = classifier_accident_ratio > 0.25 and classifier_avg_conf > 0.55
+        yolo_detected = yolo_result['has_accident']
+
+        # Final decision: either detection method can trigger, but both together gives higher confidence
+        if classifier_detected and yolo_detected:
+            # Both agree - high confidence
+            has_accident = True
+            final_confidence = max(classifier_avg_conf, yolo_result['confidence']) * 1.1
+            final_confidence = min(final_confidence, 0.99)
+        elif classifier_detected:
+            # Only classifier detected
+            has_accident = True
+            final_confidence = classifier_avg_conf * 0.9
+        elif yolo_detected:
+            # Only YOLO detected
+            has_accident = True
+            final_confidence = yolo_result['confidence'] * 0.85
+        else:
+            # Neither detected
+            has_accident = False
+            final_confidence = max(classifier_avg_conf * classifier_accident_ratio, yolo_result['confidence']) * 0.5
+
+        # Merge suspicious frames
+        all_suspicious = set(yolo_result['suspicious_frames']) | set(classifier_frame_indices)
+
+        # Merge indicator counts
+        indicator_counts = dict(yolo_result['indicator_counts'])
+        indicator_counts['classifier_detections'] = classifier_accident_frames
+
+        # Combined statistics
+        combined_stats = stats.copy()
+        combined_stats['classifier_accident_ratio'] = classifier_accident_ratio
+        combined_stats['classifier_avg_confidence'] = classifier_avg_conf
+        combined_stats['method'] = 'combined_classifier_yolo'
+
+        return {
+            'hasAccident': has_accident,
+            'confidence': float(final_confidence),
+            'totalFrames': len(frames),
+            'confirmedTracks': stats['confirmed_tracks'],
+            'suspiciousFrames': sorted(list(all_suspicious)),
+            'indicatorCounts': indicator_counts,
+            'statistics': combined_stats
+        }
+
+    # YOLO only (no classifier available)
     return {
-        'hasAccident': accident_result['has_accident'],
-        'confidence': float(accident_result['confidence']),
+        'hasAccident': yolo_result['has_accident'],
+        'confidence': float(yolo_result['confidence']),
         'totalFrames': len(frames),
         'confirmedTracks': stats['confirmed_tracks'],
-        'suspiciousFrames': accident_result['suspicious_frames'],
-        'indicatorCounts': accident_result['indicator_counts'],
+        'suspiciousFrames': yolo_result['suspicious_frames'],
+        'indicatorCounts': yolo_result['indicator_counts'],
         'statistics': stats
     }
 def notify_users_about_accident(accident_id: int, latitude: float, longitude: float, 
@@ -578,7 +792,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             if has_accident and confidence >= 0.3:
                 cursor.execute("""
                     UPDATE accidents
-                    SET status = 'confirmed', confirmed_at = NOW()
+                    SET status = 'confirmed'
                     WHERE video_id = %s AND status = 'reported'
                     RETURNING id, latitude, longitude, description
                 """, (request.videoId,))
