@@ -555,7 +555,7 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     { name: 'User Service', url: process.env.USER_SERVICE_URL || 'http://user-service:3001' },
     { name: 'Accident Service', url: process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002' },
     { name: 'Video Service', url: process.env.VIDEO_SERVICE_URL || 'http://video-service:3003' },
-    { name: 'AI Service', url: process.env.AI_SERVICE_URL || 'http://ai-service:3004' },
+    { name: 'AI Service', url: process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004' },
     { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005' },
     { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http://map-service:3006' },
     { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http://report-service:3007' },

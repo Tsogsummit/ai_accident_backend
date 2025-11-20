@@ -273,7 +273,7 @@ services:
       ACCIDENT_SERVICE_URL: http://accident-service:3002
       
       # Model
-      MODEL_PATH: /app/models/yolov8n.pt
+      MODEL_PATH: /app/models/yolov8m.pt
       
       # AI Config
       AI_CONFIDENCE_THRESHOLD: ${AI_CONFIDENCE_THRESHOLD:-0.5}
