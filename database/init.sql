@@ -602,7 +602,57 @@ BEGIN
     RAISE NOTICE '   Username: admin';
     RAISE NOTICE '   Password: admin123';
     RAISE NOTICE '   Phone: +97699999999';
-    
+
+END $$;
+
+-- =====================================================
+-- 50 TEST USERS
+-- =====================================================
+
+DO $$
+DECLARE
+    hashed_password TEXT;
+    i INTEGER;
+    user_names TEXT[] := ARRAY[
+        'Бат', 'Болд', 'Ганбаатар', 'Дорж', 'Эрдэнэ',
+        'Цэцэг', 'Наран', 'Сараа', 'Оюун', 'Туяа',
+        'Мөнх', 'Баяр', 'Энх', 'Тэмүүжин', 'Билгүүн',
+        'Анар', 'Золзаяа', 'Нямаа', 'Пүрэв', 'Лхагва',
+        'Сүхбат', 'Баатар', 'Ганхуяг', 'Бямба', 'Амар',
+        'Дулам', 'Гантулга', 'Цогтоо', 'Мягмар', 'Алтан',
+        'Хүрэлбаатар', 'Түмэн', 'Батбаяр', 'Сумъяа', 'Очир',
+        'Наранбаатар', 'Жаргал', 'Бадам', 'Сэргэлэн', 'Буян',
+        'Ганзориг', 'Тулга', 'Дэлгэр', 'Чимэг', 'Ундрах',
+        'Норов', 'Мөнхбат', 'Содном', 'Цэнд', 'Өлзий'
+    ];
+BEGIN
+    hashed_password := crypt('test123', gen_salt('bf', 12));
+
+    FOR i IN 1..50 LOOP
+        INSERT INTO users (
+            phone,
+            email,
+            name,
+            password_hash,
+            role,
+            status
+        )
+        VALUES (
+            '+9769900' || LPAD(i::TEXT, 4, '0'),
+            'test' || i || '@accident.mn',
+            user_names[i],
+            hashed_password,
+            'user',
+            'active'
+        )
+        ON CONFLICT (phone) DO NOTHING;
+    END LOOP;
+
+    RAISE NOTICE '✅ 50 test users created successfully!';
+    RAISE NOTICE '   Phone format: +976990000XX (01-50)';
+    RAISE NOTICE '   Email format: testXX@accident.mn';
+    RAISE NOTICE '   Password: test123';
+
 END $$;
 
 -- Sample cameras

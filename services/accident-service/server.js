@@ -9,6 +9,19 @@ const rateLimit = require('express-rate-limit');
 const { body, validationResult, query } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
+
+// Haversine formula to calculate distance between two coordinates in meters
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -269,15 +282,48 @@ app.post('/accidents',
       const DUPLICATE_RADIUS_METERS = 100;
       const DUPLICATE_TIME_MINUTES = 30;
 
-      const existingResult = await client.query(`
-        SELECT id, report_count, description
-        FROM accidents
-        WHERE status IN ('reported', 'confirmed')
-          AND accident_time > NOW() - INTERVAL '${DUPLICATE_TIME_MINUTES} minutes'
-          AND calculate_distance(latitude, longitude, $1, $2) < $3
-        ORDER BY accident_time DESC
-        LIMIT 1
-      `, [latitude, longitude, DUPLICATE_RADIUS_METERS]);
+      console.log(`🔍 Checking for duplicates at ${latitude}, ${longitude} within ${DUPLICATE_RADIUS_METERS}m and ${DUPLICATE_TIME_MINUTES} min`);
+
+      // Get recent accidents and check distance in JavaScript (more reliable than SQL extensions)
+      let existingAccident = null;
+      try {
+        const recentAccidents = await client.query(`
+          SELECT id, report_count, description, latitude, longitude
+          FROM accidents
+          WHERE status IN ('reported', 'confirmed')
+            AND accident_time > NOW() - INTERVAL '${DUPLICATE_TIME_MINUTES} minutes'
+          ORDER BY accident_time DESC
+          LIMIT 50
+        `);
+
+        console.log(`🔍 Found ${recentAccidents.rows.length} recent accidents to check`);
+
+        // Check each recent accident for proximity using JavaScript
+        for (const accident of recentAccidents.rows) {
+          const distance = calculateDistance(
+            parseFloat(latitude),
+            parseFloat(longitude),
+            parseFloat(accident.latitude),
+            parseFloat(accident.longitude)
+          );
+
+          if (distance < DUPLICATE_RADIUS_METERS) {
+            console.log(`🔍 Found duplicate! Accident #${accident.id} at ${distance.toFixed(2)}m`);
+            existingAccident = { ...accident, distance };
+            break;
+          }
+        }
+
+        if (!existingAccident) {
+          console.log(`🔍 No duplicates found within ${DUPLICATE_RADIUS_METERS}m`);
+        }
+      } catch (dedupError) {
+        console.error(`❌ Deduplication check FAILED: ${dedupError.message}`);
+        existingAccident = null;
+      }
+
+      // Convert to the format expected by the rest of the code
+      const existingResult = existingAccident ? { rows: [existingAccident] } : { rows: [] };
 
       let accident;
       let isNewAccident = true;
