@@ -353,32 +353,7 @@ CREATE INDEX IF NOT EXISTS idx_camera_detections_potential ON camera_detections(
 -- FUNCTIONS
 -- =====================================================
 
-CREATE OR REPLACE FUNCTION calculate_distance(
-    lat1 DECIMAL, lon1 DECIMAL,
-    lat2 DECIMAL, lon2 DECIMAL
-) RETURNS DECIMAL AS $$
-DECLARE
-    R CONSTANT DECIMAL := 6371000;
-    rad_lat1 DECIMAL;
-    rad_lat2 DECIMAL;
-    delta_lat DECIMAL;
-    delta_lon DECIMAL;
-    a DECIMAL;
-    c DECIMAL;
-BEGIN
-    rad_lat1 := radians(lat1);
-    rad_lat2 := radians(lat2);
-    delta_lat := radians(lat2 - lat1);
-    delta_lon := radians(lon2 - lon1);
-    
-    a := sin(delta_lat/2) * sin(delta_lat/2) +
-         cos(rad_lat1) * cos(rad_lat2) *
-         sin(delta_lon/2) * sin(delta_lon/2);
-    c := 2 * atan2(sqrt(a), sqrt(1-a));
-    
-    RETURN R * c;
-END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+-- Note: calculate_distance function is defined at the top of this file using earthdistance extension
 
 CREATE OR REPLACE FUNCTION get_nearby_accidents(
     user_lat DECIMAL,
@@ -395,14 +370,14 @@ CREATE OR REPLACE FUNCTION get_nearby_accidents(
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         a.id,
         a.latitude,
         a.longitude,
         a.status,
         a.description,
         a.accident_time,
-        calculate_distance(user_lat, user_lon, a.latitude, a.longitude) as distance_meters
+        calculate_distance(user_lat, user_lon, a.latitude, a.longitude)::DECIMAL as distance_meters
     FROM accidents a
     WHERE a.status != 'resolved'
         AND a.status != 'false_alarm'
