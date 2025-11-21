@@ -1,4 +1,3 @@
-// Accident Management Script
 let accidentsData = [];
 let pagination = null;
 let currentFilters = { page: 1, limit: 50, status: '', source: '' };

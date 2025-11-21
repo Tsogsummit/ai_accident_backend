@@ -142,13 +142,14 @@ app.get('/accidents',
     query('limit').optional().isInt({ min: 1, max: 100 }),
     query('offset').optional().isInt({ min: 0 }),
     query('forceRefresh').optional().isBoolean(),
-    query('userOnly').optional().isBoolean(), 
+    query('userOnly').optional().isBoolean(),
+    query('activeOnly').optional().isBoolean(), // ✅ NEW: Filter for map view
   ],
   validate,
   async (req, res) => {
     try {
-      const { status, limit = 100, offset = 0, forceRefresh, userOnly } = req.query;
-      const cacheKey = `accidents:${status || 'all'}:${userOnly ? 'user' : 'all'}:${limit}:${offset}`;
+      const { status, limit = 100, offset = 0, forceRefresh, userOnly, activeOnly } = req.query;
+      const cacheKey = `accidents:${status || 'all'}:${userOnly ? 'user' : 'all'}:${activeOnly ? 'active' : 'all'}:${limit}:${offset}`;
       if (!forceRefresh || forceRefresh === 'false') {
         try {
           const cached = await redis.get(cacheKey);
@@ -200,6 +201,15 @@ app.get('/accidents',
       if (status) {
         queryText += ` AND a.status = $${paramIndex++}`;
         params.push(status);
+      }
+
+      // ✅ NEW: Filter for map view - only show active accidents (not resolved/expired)
+      if (activeOnly === 'true' || activeOnly === true) {
+        queryText += ` AND a.status IN ('reported', 'confirmed')`;
+        queryText += ` AND a.resolved_at IS NULL`;
+        queryText += ` AND (a.confirmed_at IS NULL OR a.confirmed_at > NOW() - INTERVAL '4 hours')`;
+        queryText += ` AND a.accident_time > NOW() - INTERVAL '4 hours'`;
+        console.log('  ✅ APPLYING activeOnly filter for map view');
       }
       queryText += `
         GROUP BY a.id, u.name, u.phone, c.name
@@ -254,15 +264,88 @@ app.post('/accidents',
       } = req.body;
       const userId = req.user.userId;
       await client.query('BEGIN');
-      const accidentResult = await client.query(`
-        INSERT INTO accidents (
-          user_id, latitude, longitude, description, 
-          status, source, video_id, image_url, accident_time
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-        RETURNING *
-      `, [userId, latitude, longitude, description, 'reported', 'user', videoId, imageUrl]);
-      const accident = accidentResult.rows[0];
+
+      // ✅ Check for existing nearby accident (deduplication)
+      const DUPLICATE_RADIUS_METERS = 100;
+      const DUPLICATE_TIME_MINUTES = 30;
+
+      const existingResult = await client.query(`
+        SELECT id, report_count, description
+        FROM accidents
+        WHERE status IN ('reported', 'confirmed')
+          AND accident_time > NOW() - INTERVAL '${DUPLICATE_TIME_MINUTES} minutes'
+          AND calculate_distance(latitude, longitude, $1, $2) < $3
+        ORDER BY accident_time DESC
+        LIMIT 1
+      `, [latitude, longitude, DUPLICATE_RADIUS_METERS]);
+
+      let accident;
+      let isNewAccident = true;
+
+      if (existingResult.rows.length > 0) {
+        // ✅ Found existing accident - add to it instead of creating new
+        const existingAccident = existingResult.rows[0];
+
+        // Check if user already reported this accident
+        const alreadyReported = await client.query(`
+          SELECT id FROM accident_reports
+          WHERE accident_id = $1 AND user_id = $2
+        `, [existingAccident.id, userId]);
+
+        if (alreadyReported.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: 'Та энэ ослыг аль хэдийн мэдээлсэн байна',
+            accidentId: existingAccident.id
+          });
+        }
+
+        // Update existing accident report count
+        const updateResult = await client.query(`
+          UPDATE accidents
+          SET report_count = report_count + 1,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [existingAccident.id]);
+
+        accident = updateResult.rows[0];
+        isNewAccident = false;
+
+        // Add to accident_reports table
+        await client.query(`
+          INSERT INTO accident_reports (accident_id, user_id, video_id, latitude, longitude, description)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [existingAccident.id, userId, videoId, latitude, longitude, description]);
+
+        // Link video to existing accident if provided
+        if (videoId) {
+          await client.query(`
+            UPDATE videos SET accident_id = $1 WHERE id = $2
+          `, [existingAccident.id, videoId]);
+        }
+
+        console.log(`✅ Added report to existing accident #${existingAccident.id} (now ${accident.report_count} reports)`);
+      } else {
+        // ✅ Create new accident
+        const accidentResult = await client.query(`
+          INSERT INTO accidents (
+            user_id, latitude, longitude, description,
+            status, source, video_id, image_url, accident_time, report_count
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), 1)
+          RETURNING *
+        `, [userId, latitude, longitude, description, 'reported', 'user', videoId, imageUrl]);
+        accident = accidentResult.rows[0];
+
+        // Add first report to accident_reports
+        await client.query(`
+          INSERT INTO accident_reports (accident_id, user_id, video_id, latitude, longitude, description)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [accident.id, userId, videoId, latitude, longitude, description]);
+      }
+
       await client.query(`
         INSERT INTO locations (user_id, latitude, longitude, timestamp)
         VALUES ($1, $2, $3, NOW())
@@ -276,19 +359,25 @@ app.post('/accidents',
       } catch (redisErr) {
         console.warn('Cache clear failed:', redisErr.message);
       }
-      notifyNearbyUsers(accident, 5000).catch(err => 
-        console.error('Notification error:', err)
-      );
+
+      if (isNewAccident) {
+        notifyNearbyUsers(accident, 5000).catch(err =>
+          console.error('Notification error:', err)
+        );
+      }
+
       res.status(201).json({
         success: true,
-        message: 'Осол амжилттай бүртгэгдлээ',
+        message: isNewAccident ? 'Осол амжилттай бүртгэгдлээ' : 'Одоо байгаа ослын мэдээлэлд нэмэгдлээ',
         data: accident,
+        isNewAccident,
+        reportCount: accident.report_count
       });
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('POST /accidents error:', error);
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: 'Осол бүртгэхэд алдаа гарлаа',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -359,16 +448,25 @@ app.put('/accidents/:id/status',
     try {
       const { id } = req.params;
       const { status } = req.body;
+
+      // Set timestamps based on status change
+      let additionalFields = '';
+      if (status === 'confirmed') {
+        additionalFields = ', confirmed_at = NOW()';
+      } else if (status === 'resolved') {
+        additionalFields = ', resolved_at = NOW()';
+      }
+
       const result = await pool.query(`
-        UPDATE accidents 
-        SET status = $1, updated_at = NOW()
+        UPDATE accidents
+        SET status = $1, updated_at = NOW()${additionalFields}
         WHERE id = $2
         RETURNING *
       `, [status, id]);
       if (result.rows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Осол олдсонгүй' 
+        return res.status(404).json({
+          success: false,
+          error: 'Осол олдсонгүй'
         });
       }
       try {
@@ -386,9 +484,69 @@ app.put('/accidents/:id/status',
       });
     } catch (error) {
       console.error('PUT /accidents/:id/status error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Төлөв шинэчлэхэд алдаа гарлаа' 
+      res.status(500).json({
+        success: false,
+        error: 'Төлөв шинэчлэхэд алдаа гарлаа'
+      });
+    }
+  }
+);
+
+// ✅ NEW: Resolve accident endpoint - marks accident as cleared from map
+app.post('/accidents/:id/resolve',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.userId;
+
+      // Check if user is the reporter or an admin
+      const accidentCheck = await pool.query(`
+        SELECT user_id FROM accidents WHERE id = $1
+      `, [id]);
+
+      if (accidentCheck.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Осол олдсонгүй'
+        });
+      }
+
+      const result = await pool.query(`
+        UPDATE accidents
+        SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [id]);
+
+      // Clear cache
+      try {
+        const keys = await redis.keys('accidents:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } catch (redisErr) {
+        console.warn('Cache clear failed:', redisErr.message);
+      }
+
+      // Notify connected users that accident is resolved
+      io.emit('accident_resolved', {
+        accidentId: parseInt(id),
+        resolvedAt: new Date().toISOString()
+      });
+
+      console.log(`✅ Accident #${id} resolved by user ${userId}`);
+
+      res.json({
+        success: true,
+        message: 'Осол шийдэгдсэн гэж тэмдэглэгдлээ',
+        data: result.rows[0]
+      });
+    } catch (error) {
+      console.error('POST /accidents/:id/resolve error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Осол шийдвэрлэхэд алдаа гарлаа'
       });
     }
   }

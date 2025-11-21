@@ -95,6 +95,9 @@ CREATE TABLE IF NOT EXISTS accidents (
     status VARCHAR(20) DEFAULT 'reported',
     source VARCHAR(20) DEFAULT 'user',
     verification_count INTEGER DEFAULT 0,
+    report_count INTEGER DEFAULT 1, -- ✅ NEW: Track multiple reports for same accident
+    resolved_at TIMESTAMP, -- ✅ NEW: When accident was resolved/cleared
+    confirmed_at TIMESTAMP, -- ✅ NEW: When accident was confirmed by AI
     accident_time TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -132,9 +135,25 @@ CREATE INDEX IF NOT EXISTS idx_videos_accident ON videos(accident_id); -- ✅ Ш
 CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 
 -- ✅ Add foreign key constraint for accidents.video_id (after videos table is created)
-ALTER TABLE accidents 
-ADD CONSTRAINT fk_accidents_video 
+ALTER TABLE accidents
+ADD CONSTRAINT fk_accidents_video
 FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE SET NULL;
+
+-- ✅ NEW: Track individual reports for deduplication (after videos table exists)
+CREATE TABLE IF NOT EXISTS accident_reports (
+    id SERIAL PRIMARY KEY,
+    accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    video_id INTEGER REFERENCES videos(id) ON DELETE SET NULL,
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT unique_user_accident_report_entry UNIQUE (user_id, accident_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_accident_reports_accident ON accident_reports(accident_id);
+CREATE INDEX IF NOT EXISTS idx_accident_reports_user ON accident_reports(user_id);
 
 -- Locations хүснэгт
 CREATE TABLE IF NOT EXISTS locations (
