@@ -9,6 +9,23 @@ CREATE EXTENSION IF NOT EXISTS earthdistance;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- =====================================================
+-- HELPER FUNCTIONS
+-- =====================================================
+
+-- Calculate distance between two lat/lng points in meters
+CREATE OR REPLACE FUNCTION calculate_distance(
+    lat1 DECIMAL, lng1 DECIMAL,
+    lat2 DECIMAL, lng2 DECIMAL
+) RETURNS FLOAT AS $$
+BEGIN
+    RETURN earth_distance(
+        ll_to_earth(lat1, lng1),
+        ll_to_earth(lat2, lng2)
+    );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- =====================================================
 -- TABLES
 -- =====================================================
 
