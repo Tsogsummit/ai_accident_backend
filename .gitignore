@@ -22,6 +22,11 @@ credentials.json
 secrets.yml
 secrets.yaml
 
+# API Keys (Google, Gemini, etc.)
+*api_key*
+*apikey*
+*API_KEY*
+
 # ==========================================
 # Node.js
 # ==========================================
