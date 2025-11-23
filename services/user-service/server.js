@@ -46,11 +46,11 @@ const REFRESH_TOKEN_EXPIRES_IN = '30d';
 const BCRYPT_ROUNDS = 12;
 function generateTokens(user) {
   const accessToken = jwt.sign(
-    { 
-      userId: user.id, 
+    {
+      userId: user.id,
       phone: user.phone,
       email: user.email,
-      role: user.role 
+      role: user.role
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
@@ -145,9 +145,9 @@ app.post('/auth/register', async (req, res) => {
   try {
     const { phone, email, name, password } = req.body;
     if (!phone || !name || !password) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Утасны дугаар, нэр, нууц үг заавал оруулна уу' 
+        error: 'Утасны дугаар, нэр, нууц үг заавал оруулна уу'
       });
     }
     if (!validatePhone(phone)) {
@@ -164,31 +164,31 @@ app.post('/auth/register', async (req, res) => {
     }
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.valid) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         error: passwordValidation.error
       });
     }
     await client.query('BEGIN');
     const existingUser = await client.query(
-      email 
+      email
         ? 'SELECT id FROM users WHERE phone = $1 OR email = $2'
         : 'SELECT id FROM users WHERE phone = $1',
       email ? [phone, email] : [phone]
     );
     if (existingUser.rows.length > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ 
+      return res.status(409).json({
         success: false,
-        error: 'Энэ утас эсвэл имэйл хаяг бүртгэгдсэн байна' 
+        error: 'Энэ утас эсвэл имэйл хаяг бүртгэгдсэн байна'
       });
     }
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const result = await client.query(
-      `INSERT INTO users (phone, email, name, password_hash, role, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (phone, email, name, password_hash, role)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id, phone, email, name, role, created_at`,
-      [phone, email || null, name, passwordHash, 'user', 'active']
+      [phone, email || null, name, passwordHash, 'user']
     );
     const user = result.rows[0];
     await client.query(
@@ -218,7 +218,7 @@ app.post('/auth/register', async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Register error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Бүртгэлд алдаа гарлаа',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -231,9 +231,9 @@ app.post('/auth/login', async (req, res) => {
   try {
     const { phone, password } = req.body;
     if (!phone || !password) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Утас болон нууц үг оруулна уу' 
+        error: 'Утас болон нууц үг оруулна уу'
       });
     }
     const attemptCheck = checkLoginAttempts(phone);
@@ -249,24 +249,18 @@ app.post('/auth/login', async (req, res) => {
     );
     if (result.rows.length === 0) {
       recordFailedLogin(phone);
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Хэрэглэгч олдсонгүй эсвэл нууц үг буруу' 
+        error: 'Хэрэглэгч олдсонгүй эсвэл нууц үг буруу'
       });
     }
     const user = result.rows[0];
-    if (user.status !== 'active') {
-      return res.status(403).json({ 
-        success: false,
-        error: 'Таны эрх хаагдсан байна' 
-      });
-    }
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
       recordFailedLogin(phone);
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Хэрэглэгч олдсонгүй эсвэл нууц үг буруу' 
+        error: 'Хэрэглэгч олдсонгүй эсвэл нууц үг буруу'
       });
     }
     resetLoginAttempts(phone);
@@ -290,7 +284,7 @@ app.post('/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Нэвтрэхэд алдаа гарлаа',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -479,18 +473,18 @@ app.put('/auth/profile', authenticateToken, async (req, res) => {
   }
 });
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     success: false,
     error: 'Endpoint олдсонгүй',
-    path: req.path 
+    path: req.path
   });
 });
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
     success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Серверийн алдаа гарлаа' 
+    error: process.env.NODE_ENV === 'production'
+      ? 'Серверийн алдаа гарлаа'
       : err.message,
   });
 });

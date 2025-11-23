@@ -86,10 +86,10 @@ lerna-debug.log*
 # ==========================================
 # Database
 # ==========================================
-*.sql
-*.sqlite
-*.sqlite3
-*.db
+# *.sql
+# *.sqlite
+# *.sqlite3
+# *.db
 
 # Database dumps
 *.dump

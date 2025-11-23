@@ -48,8 +48,7 @@ class CameraStreamMonitor {
       const result = await this.pool.query(`
         SELECT id, name, stream_url, latitude, longitude
         FROM cameras
-        WHERE status = 'active'
-          AND is_online = true
+        WHERE is_online = true
           AND stream_type = 'hls'
           AND stream_url IS NOT NULL
         ORDER BY id
@@ -305,9 +304,9 @@ class CameraStreamMonitor {
     try {
       await this.pool.query(`
         UPDATE cameras
-        SET status = $1, last_active = NOW(), updated_at = NOW()
-        WHERE id = $2
-      `, [status, cameraId]);
+        SET last_active = NOW(), updated_at = NOW()
+        WHERE id = $1
+      `, [cameraId]);
     } catch (error) {
       logger.error(`Failed to update camera status: ${error.message}`);
     }
@@ -328,9 +327,9 @@ class CameraStreamMonitor {
 
       // Log to camera_logs table
       await this.pool.query(`
-        INSERT INTO camera_logs (camera_id, status, error_message, timestamp)
-        VALUES ($1, $2, $3, NOW())
-      `, [cameraId, 'error', errorMessage]);
+        INSERT INTO camera_logs (camera_id, error_message, timestamp)
+        VALUES ($1, $2, NOW())
+      `, [cameraId, errorMessage]);
 
     } catch (error) {
       logger.error(`Failed to update camera error: ${error.message}`);

@@ -19,7 +19,6 @@ async function getActiveCamerasFromDB() {
   try {
     const result = await pool.query(`
       SELECT * FROM cameras 
-      WHERE status = 'active' 
       ORDER BY id
     `);
     return result.rows;
@@ -36,9 +35,9 @@ async function getActiveCamerasFromDB() {
 async function startCameraMonitoring(camera) {
   try {
     // Check camera type
-    const isHLS = camera.stream_type === 'hls' || 
-                  camera.stream_url?.includes('.m3u8');
-    
+    const isHLS = camera.stream_type === 'hls' ||
+      camera.stream_url?.includes('.m3u8');
+
     if (isHLS) {
       // ✅ HLS Stream (Real-time processing)
       await startHLSMonitoring(camera);
@@ -48,10 +47,10 @@ async function startCameraMonitoring(camera) {
     }
 
     logger.info(`▶️  Camera monitoring эхэллээ: ${camera.name} (ID: ${camera.id}, Type: ${isHLS ? 'HLS' : 'RTSP'})`);
-    
+
   } catch (error) {
     logger.error(`Failed to start camera ${camera.id}:`, error);
-    await updateCameraStatus(camera.id, 'error');
+    // await updateCameraStatus(camera.id, 'error'); // Status removed
   }
 }
 
@@ -121,7 +120,7 @@ async function stopCameraMonitoring(cameraId) {
     `, [cameraId]);
 
     logger.info(`⏸️  Camera monitoring зогслоо: ID ${cameraId}`);
-    
+
   } catch (error) {
     logger.error(`Failed to stop camera ${cameraId}:`, error);
   }
@@ -152,17 +151,17 @@ async function captureAndUpload(camera, duration) {
     // Update status to active
     await pool.query(`
       UPDATE cameras 
-      SET is_recording = false, status = 'active', updated_at = NOW()
+      SET is_recording = false, updated_at = NOW()
       WHERE id = $1
     `, [camera.id]);
 
   } catch (error) {
     logger.error(`Camera ${camera.id} capture error:`, error);
-    
+
     // Update status to error
     await pool.query(`
       UPDATE cameras 
-      SET is_recording = false, status = 'error', 
+      SET is_recording = false, 
           last_error = $1, updated_at = NOW()
       WHERE id = $2
     `, [error.message, camera.id]);
@@ -175,12 +174,12 @@ async function captureAndUpload(camera, duration) {
 async function startAllCameras() {
   try {
     const cameras = await getActiveCamerasFromDB();
-    
+
     logger.info(`📡 ${cameras.length} идэвхтэй камер байна`);
 
     for (const camera of cameras) {
       await startCameraMonitoring(camera);
-      
+
       // Rate limiting: хэд хэдэн камер эхлүүлэхэд 2 секунд хүлээх
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
@@ -191,7 +190,7 @@ async function startAllCameras() {
     }, 3600000);
 
     logger.info('✅ All cameras started successfully');
-    
+
   } catch (error) {
     logger.error('Failed to start all cameras:', error);
   }
@@ -213,7 +212,7 @@ async function stopAllCameras() {
       clearInterval(intervalId);
     }
     monitoringIntervals.clear();
-    
+
     // Update database
     await pool.query(`
       UPDATE cameras 
@@ -222,7 +221,7 @@ async function stopAllCameras() {
     `);
 
     logger.info('⏹️  All cameras stopped');
-    
+
   } catch (error) {
     logger.error('Failed to stop all cameras:', error);
   }
@@ -252,7 +251,7 @@ async function getMonitoringStatus() {
       type: camera.stream_type,
       isOnline: camera.is_online,
       isRecording: camera.is_recording,
-      status: camera.status,
+      // status: camera.status, // Removed
       lastFrameTime: camera.last_frame_time,
       framesCaptured: camera.frames_captured,
       totalFrames: camera.total_frames || 0,
@@ -262,7 +261,7 @@ async function getMonitoringStatus() {
       lastError: camera.last_error,
       activeProcessor: hlsProcessors.has(camera.id) || monitoringIntervals.has(camera.id)
     }));
-    
+
   } catch (error) {
     logger.error('Failed to get monitoring status:', error);
     return [];
@@ -275,10 +274,10 @@ async function getMonitoringStatus() {
 async function restartCamera(cameraId) {
   try {
     await stopCameraMonitoring(cameraId);
-    
+
     // Wait a bit
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     const result = await pool.query(`
       SELECT * FROM cameras WHERE id = $1
     `, [cameraId]);
@@ -288,9 +287,9 @@ async function restartCamera(cameraId) {
       logger.info(`🔄 Camera ${cameraId} restarted`);
       return true;
     }
-    
+
     return false;
-    
+
   } catch (error) {
     logger.error(`Failed to restart camera ${cameraId}:`, error);
     return false;

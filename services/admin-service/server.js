@@ -71,44 +71,38 @@ app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Username болон password шаардлагатай' 
+      return res.status(400).json({
+        success: false,
+        error: 'Username болон password шаардлагатай'
       });
     }
     const result = await pool.query(`
-      SELECT a.*, u.password_hash, u.role, u.status, u.name, u.email
+      SELECT a.*, u.password_hash, u.role, u.name, u.email
       FROM admins a
       JOIN users u ON a.user_id = u.id
       WHERE a.username = $1 AND u.role = 'admin'
     `, [username]);
     if (result.rows.length === 0) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Нэвтрэх нэр эсвэл нууц үг буруу' 
+      return res.status(401).json({
+        success: false,
+        error: 'Нэвтрэх нэр эсвэл нууц үг буруу'
       });
     }
     const admin = result.rows[0];
-    if (admin.status !== 'active') {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Таны эрх хаагдсан байна' 
-      });
-    }
     const isValid = await bcrypt.compare(password, admin.password_hash);
     if (!isValid) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Нэвтрэх нэр эсвэл нууц үг буруу' 
+      return res.status(401).json({
+        success: false,
+        error: 'Нэвтрэх нэр эсвэл нууц үг буруу'
       });
     }
     const token = jwt.sign(
-      { 
-        userId: admin.user_id, 
+      {
+        userId: admin.user_id,
         adminId: admin.id,
         username: admin.username,
         role: 'admin',
-        permissions: admin.permissions 
+        permissions: admin.permissions
       },
       JWT_SECRET,
       { expiresIn: '24h' }
@@ -144,7 +138,7 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
     }
     const [
       totalAccidents, activeAccidents, todayAccidents,
-      totalUsers, activeUsers,
+      totalUsers,
       totalCameras, onlineCameras,
       totalVideos, pendingVideos,
       aiAccuracy
@@ -153,7 +147,6 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
       pool.query("SELECT COUNT(*) as count FROM accidents WHERE status IN ('reported', 'confirmed')"),
       pool.query("SELECT COUNT(*) as count FROM accidents WHERE status = 'confirmed' AND accident_time >= CURRENT_DATE"),
       pool.query('SELECT COUNT(*) as count FROM users'),
-      pool.query("SELECT COUNT(*) as count FROM users WHERE status = 'active'"),
       pool.query('SELECT COUNT(*) as count FROM cameras'),
       pool.query('SELECT COUNT(*) as count FROM cameras WHERE is_online = true'),
       pool.query('SELECT COUNT(*) as count FROM videos'),
@@ -172,7 +165,7 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
     const aiStats = aiAccuracy.rows[0];
     const confirmed = parseInt(aiStats.confirmed) || 0;
     const falseAlarms = parseInt(aiStats.false_alarms) || 0;
-    const accuracy = confirmed + falseAlarms > 0 
+    const accuracy = confirmed + falseAlarms > 0
       ? ((confirmed / (confirmed + falseAlarms)) * 100).toFixed(1)
       : 0;
     const stats = {
@@ -183,7 +176,6 @@ app.get('/admin/dashboard/stats', authenticateAdmin, async (req, res) => {
       },
       users: {
         total: parseInt(totalUsers.rows[0].count),
-        active: parseInt(activeUsers.rows[0].count),
       },
       cameras: {
         total: parseInt(totalCameras.rows[0].count),
@@ -337,10 +329,10 @@ app.delete('/admin/accidents/:id', authenticateAdmin, async (req, res) => {
 });
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 50, status, role } = req.query;
+    const { page = 1, limit = 50, role } = req.query;
     const offset = (page - 1) * limit;
     let query = `
-      SELECT u.id, u.phone, u.email, u.name, u.status, u.role, u.created_at,
+      SELECT u.id, u.phone, u.email, u.name, u.role, u.created_at,
              COUNT(DISTINCT CASE WHEN a.status != 'false_alarm' THEN a.id END)::int as total_reports,
              COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END)::int as confirmed_reports,
              COUNT(DISTINCT fr.id)::int as false_reports_made
@@ -351,10 +343,6 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
     `;
     const params = [];
     let paramIndex = 1;
-    if (status) {
-      query += ` AND u.status = $${paramIndex++}`;
-      params.push(status);
-    }
     if (role) {
       query += ` AND u.role = $${paramIndex++}`;
       params.push(role);
@@ -388,9 +376,9 @@ app.post('/admin/users', authenticateAdmin, async (req, res) => {
   try {
     const { phone, email, name, password, role = 'user' } = req.body;
     if (!phone || !name || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Утас, нэр, нууц үг шаардлагатай' 
+      return res.status(400).json({
+        success: false,
+        error: 'Утас, нэр, нууц үг шаардлагатай'
       });
     }
     await client.query('BEGIN');
@@ -400,15 +388,15 @@ app.post('/admin/users', authenticateAdmin, async (req, res) => {
     );
     if (existingUser.rows.length > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ 
-        success: false, 
-        error: 'Утас эсвэл имэйл бүртгэгдсэн байна' 
+      return res.status(409).json({
+        success: false,
+        error: 'Утас эсвэл имэйл бүртгэгдсэн байна'
       });
     }
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const result = await client.query(`
-      INSERT INTO users (phone, email, name, password_hash, role, status)
-      VALUES ($1, $2, $3, $4, $5, 'active')
+      INSERT INTO users (phone, email, name, password_hash, role)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING id, phone, email, name, role, created_at
     `, [phone, email, name, passwordHash, role]);
     await client.query('COMMIT');
@@ -428,7 +416,7 @@ app.post('/admin/users', authenticateAdmin, async (req, res) => {
 app.put('/admin/users/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, status, role } = req.body;
+    const { name, email, role } = req.body;
     const updates = [];
     const values = [];
     let paramIndex = 1;
@@ -439,10 +427,6 @@ app.put('/admin/users/:id', authenticateAdmin, async (req, res) => {
     if (email !== undefined) {
       updates.push(`email = $${paramIndex++}`);
       values.push(email);
-    }
-    if (status) {
-      updates.push(`status = $${paramIndex++}`);
-      values.push(status);
     }
     if (role) {
       updates.push(`role = $${paramIndex++}`);
@@ -456,7 +440,7 @@ app.put('/admin/users/:id', authenticateAdmin, async (req, res) => {
     const query = `
       UPDATE users SET ${updates.join(', ')}
       WHERE id = $${paramIndex}
-      RETURNING id, phone, email, name, role, status, updated_at
+      RETURNING id, phone, email, name, role, updated_at
     `;
     const result = await pool.query(query, values);
     if (result.rows.length === 0) {
@@ -476,9 +460,9 @@ app.delete('/admin/users/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (parseInt(id) === req.user.userId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Өөрийгөө устгаж болохгүй' 
+      return res.status(400).json({
+        success: false,
+        error: 'Өөрийгөө устгаж болохгүй'
       });
     }
     const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id', [id]);
@@ -511,14 +495,14 @@ async function proxyCameraRequest(req, res, method, path, body = null) {
     if (error.response) {
       res.status(error.response.status).json(error.response.data);
     } else if (error.code === 'ECONNREFUSED') {
-      res.status(503).json({ 
-        success: false, 
-        error: 'Камер сервис ажиллахгүй байна' 
+      res.status(503).json({
+        success: false,
+        error: 'Камер сервис ажиллахгүй байна'
       });
     } else {
-      res.status(500).json({ 
-        success: false, 
-        error: 'Камер сервистэй холбогдоход алдаа гарлаа' 
+      res.status(500).json({
+        success: false,
+        error: 'Камер сервистэй холбогдоход алдаа гарлаа'
       });
     }
   }
@@ -565,14 +549,14 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     services.map(async (service) => {
       const startTime = Date.now();
       try {
-        const response = await axios.get(`${service.url}/health`, { 
+        const response = await axios.get(`${service.url}/health`, {
           timeout: 5000,
           validateStatus: (status) => status < 600
         });
         const responseTime = `${Date.now() - startTime}ms`;
-        const isHealthy = response.status === 200 && 
-                         response.data && 
-                         (response.data.status === 'healthy' || response.data.status === 'ok');
+        const isHealthy = response.status === 200 &&
+          response.data &&
+          (response.data.status === 'healthy' || response.data.status === 'ok');
         return {
           name: service.name,
           status: isHealthy ? 'healthy' : 'unhealthy',
@@ -620,9 +604,9 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     redisHealth = 'unhealthy';
     redisError = err.message;
   }
-  const allHealthy = healthChecks.every(s => s.status === 'healthy') && 
-                     dbHealth === 'healthy' && 
-                     redisHealth === 'healthy';
+  const allHealthy = healthChecks.every(s => s.status === 'healthy') &&
+    dbHealth === 'healthy' &&
+    redisHealth === 'healthy';
   res.json({
     success: true,
     data: {

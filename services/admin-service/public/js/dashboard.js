@@ -30,7 +30,7 @@ function renderStats(data) {
   document.getElementById('active-accidents').textContent = formatNumber(data.accidents.active);
   document.getElementById('today-accidents').textContent = formatNumber(data.accidents.today);
   document.getElementById('total-users').textContent = formatNumber(data.users.total);
-  document.getElementById('active-users').textContent = formatNumber(data.users.active);
+
   document.getElementById('total-cameras').textContent = formatNumber(data.cameras.total);
   document.getElementById('online-cameras').textContent = formatNumber(data.cameras.online);
   document.getElementById('total-videos').textContent = formatNumber(data.videos.total);

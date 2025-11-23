@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE,
     name VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    status VARCHAR(20) DEFAULT 'active',
+    
     role VARCHAR(20) DEFAULT 'user',
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_status ON users(status) WHERE status = 'active';
+
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- Admins хүснэгт
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS cameras (
     longitude DECIMAL(11, 8) NOT NULL,
     ip_address VARCHAR(45),
     stream_url TEXT,
-    status VARCHAR(20) DEFAULT 'active',
+    
     is_online BOOLEAN DEFAULT false,
     last_active TIMESTAMP,
     resolution VARCHAR(10) DEFAULT '480p',
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS cameras (
 CREATE INDEX IF NOT EXISTS idx_cameras_location ON cameras USING GIST (
     ll_to_earth(latitude, longitude)
 );
-CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status) WHERE status = 'active';
+
 CREATE INDEX IF NOT EXISTS idx_cameras_recording ON cameras(is_recording) WHERE is_recording = true;
 CREATE INDEX IF NOT EXISTS idx_cameras_last_frame ON cameras(last_frame_time DESC);
 
@@ -488,7 +488,7 @@ CREATE OR REPLACE VIEW camera_statistics AS
 SELECT 
     c.id,
     c.name,
-    c.status,
+
     c.is_online,
     COUNT(DISTINCT a.id) as total_accidents,
     COUNT(DISTINCT CASE WHEN a.accident_time > NOW() - INTERVAL '24 hours' THEN a.id END) as accidents_24h,
@@ -497,7 +497,7 @@ SELECT
 FROM cameras c
 LEFT JOIN accidents a ON c.id = a.camera_id
 LEFT JOIN camera_logs cl ON c.id = cl.camera_id
-GROUP BY c.id, c.name, c.status, c.is_online;
+GROUP BY c.id, c.name, c.is_online;
 
 CREATE OR REPLACE VIEW user_statistics AS
 SELECT 
@@ -570,17 +570,13 @@ BEGIN
         email, 
         name, 
         password_hash, 
-        role, 
-        status
-    )
+        role)
     VALUES (
         '+97699999999',
         'admin@accident.mn',
         'System Admin',
         hashed_password,
-        'admin',
-        'active'
-    )
+        'admin')
     ON CONFLICT (phone) DO UPDATE 
     SET password_hash = EXCLUDED.password_hash
     RETURNING id INTO admin_user_id;
@@ -634,17 +630,13 @@ BEGIN
             email,
             name,
             password_hash,
-            role,
-            status
-        )
+            role)
         VALUES (
             '+9769900' || LPAD(i::TEXT, 4, '0'),
             'test' || i || '@accident.mn',
             user_names[i],
             hashed_password,
-            'user',
-            'active'
-        )
+            'user')
         ON CONFLICT (phone) DO NOTHING;
     END LOOP;
 

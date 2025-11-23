@@ -1,12 +1,12 @@
 const express = require('express');
-const { Pool } = require('pg');
-const Redis = require('ioredis');
-const { Server } = require('socket.io');
 const http = require('http');
+const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { body, validationResult, query } = require('express-validator');
+const { Pool } = require('pg');
+const Redis = require('ioredis');
+const { body, query, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
 
@@ -15,30 +15,34 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000; // Earth's radius in meters
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { 
+  cors: {
     origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-    credentials: true 
+    credentials: true
   }
 });
+
 const PORT = process.env.PORT || 3002;
+
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
+
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -46,12 +50,14 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    return req.user?.userId 
-      ? `${req.user.userId}:${req.ip}` 
+    return req.user?.userId
+      ? `${req.user.userId}:${req.ip}`
       : req.ip;
   }
 });
+
 app.use('/api/', limiter);
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -62,12 +68,15 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
+
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
 });
+
 pool.on('connect', () => {
   console.log('✅ PostgreSQL connected');
 });
+
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -84,43 +93,49 @@ const redis = new Redis({
   maxRetriesPerRequest: 3,
   enableOfflineQueue: false,
 });
+
 redis.on('error', (err) => {
   console.error('Redis error:', err.message);
 });
+
 redis.on('connect', () => {
   console.log('✅ Redis connected');
 });
+
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) {
-    return res.status(401).json({ 
-      success: false, 
-      error: 'Нэвтрэх шаардлагатай' 
+    return res.status(401).json({
+      success: false,
+      error: 'Нэвтрэх шаардлагатай'
     });
   }
   jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
     if (err) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Хүчингүй токен' 
+      return res.status(403).json({
+        success: false,
+        error: 'Хүчингүй токен'
       });
     }
     req.user = user;
     next();
   });
 };
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ 
-      success: false, 
-      errors: errors.array() 
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
     });
   }
   next();
 };
+
 const userSockets = new Map();
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   socket.on('register', (userId) => {
@@ -148,6 +163,7 @@ io.on('connection', (socket) => {
     }
   });
 });
+
 app.get('/accidents',
   authenticateToken,
   [
@@ -202,8 +218,8 @@ app.get('/accidents',
         LEFT JOIN ai_detections aid ON v.id = aid.video_id
         WHERE 1=1
       `;
-      const params = [currentUserId]; 
-      let paramIndex = 2; 
+      const params = [currentUserId];
+      let paramIndex = 2;
       if (userOnly === 'true' || userOnly === true) {
         console.log('  ✅ APPLYING userOnly filter - user_id =', currentUserId);
         queryText += ` AND a.user_id = $${paramIndex++}`;
@@ -247,14 +263,15 @@ app.get('/accidents',
       });
     } catch (error) {
       console.error('GET /accidents error:', error);
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: 'Ослын мэдээлэл татахад алдаа гарлаа',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 );
+
 app.post('/accidents',
   authenticateToken,
   [
@@ -279,8 +296,8 @@ app.post('/accidents',
       await client.query('BEGIN');
 
       // ✅ Check for existing nearby accident (deduplication)
-      const DUPLICATE_RADIUS_METERS = 100;
-      const DUPLICATE_TIME_MINUTES = 30;
+      const DUPLICATE_RADIUS_METERS = 200;
+      const DUPLICATE_TIME_MINUTES = 60;
 
       console.log(`🔍 Checking for duplicates at ${latitude}, ${longitude} within ${DUPLICATE_RADIUS_METERS}m and ${DUPLICATE_TIME_MINUTES} min`);
 
@@ -288,18 +305,26 @@ app.post('/accidents',
       let existingAccident = null;
       try {
         const recentAccidents = await client.query(`
-          SELECT id, report_count, description, latitude, longitude
+          SELECT id, report_count, description, latitude, longitude, video_id
           FROM accidents
           WHERE status IN ('reported', 'confirmed')
             AND accident_time > NOW() - INTERVAL '${DUPLICATE_TIME_MINUTES} minutes'
           ORDER BY accident_time DESC
-          LIMIT 50
+          LIMIT 100
         `);
 
         console.log(`🔍 Found ${recentAccidents.rows.length} recent accidents to check`);
 
         // Check each recent accident for proximity using JavaScript
         for (const accident of recentAccidents.rows) {
+          // 1. Check for exact video match if videoId is provided
+          if (videoId && accident.video_id && String(accident.video_id) === String(videoId)) {
+            console.log(`🔍 Found duplicate by videoId! Accident #${accident.id}`);
+            existingAccident = { ...accident, matchType: 'video' };
+            break;
+          }
+
+          // 2. Check for proximity
           const distance = calculateDistance(
             parseFloat(latitude),
             parseFloat(longitude),
@@ -308,8 +333,8 @@ app.post('/accidents',
           );
 
           if (distance < DUPLICATE_RADIUS_METERS) {
-            console.log(`🔍 Found duplicate! Accident #${accident.id} at ${distance.toFixed(2)}m`);
-            existingAccident = { ...accident, distance };
+            console.log(`🔍 Found duplicate by distance! Accident #${accident.id} at ${distance.toFixed(2)}m`);
+            existingAccident = { ...accident, distance, matchType: 'distance' };
             break;
           }
         }
@@ -432,6 +457,7 @@ app.post('/accidents',
     }
   }
 );
+
 app.get('/accidents/:id',
   authenticateToken,
   async (req, res) => {
@@ -446,29 +472,29 @@ app.get('/accidents/:id',
       const currentUserId = req.user?.userId;
       const result = await pool.query(`
         SELECT a.*,
-               u.name as reported_by_name,
-               u.phone as reported_by_phone,
-               v.file_path as video_path,
-               v.duration as video_duration,
-               aid.confidence as ai_confidence,
-               aid.detected_objects,
-               c.name as camera_name,
-               c.location as camera_location,
-               EXISTS(
-                 SELECT 1 FROM false_reports fr
+  u.name as reported_by_name,
+  u.phone as reported_by_phone,
+  v.file_path as video_path,
+  v.duration as video_duration,
+  aid.confidence as ai_confidence,
+  aid.detected_objects,
+  c.name as camera_name,
+  c.location as camera_location,
+  EXISTS(
+    SELECT 1 FROM false_reports fr
                  WHERE fr.accident_id = a.id AND fr.user_id = $2
-               ) as user_has_reported
+  ) as user_has_reported
         FROM accidents a
         LEFT JOIN users u ON a.user_id = u.id
         LEFT JOIN videos v ON a.video_id = v.id
         LEFT JOIN ai_detections aid ON v.id = aid.video_id
         LEFT JOIN cameras c ON a.camera_id = c.id
         WHERE a.id = $1
-      `, [id, currentUserId]);
+  `, [id, currentUserId]);
       if (result.rows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Осол олдсонгүй' 
+        return res.status(404).json({
+          success: false,
+          error: 'Осол олдсонгүй'
         });
       }
       res.json({
@@ -477,13 +503,14 @@ app.get('/accidents/:id',
       });
     } catch (error) {
       console.error('GET /accidents/:id error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Дэлгэрэнгүй татахад алдаа гарлаа' 
+      res.status(500).json({
+        success: false,
+        error: 'Дэлгэрэнгүй татахад алдаа гарлаа'
       });
     }
   }
 );
+
 app.put('/accidents/:id/status',
   authenticateToken,
   [
@@ -507,8 +534,8 @@ app.put('/accidents/:id/status',
         UPDATE accidents
         SET status = $1, updated_at = NOW()${additionalFields}
         WHERE id = $2
-        RETURNING *
-      `, [status, id]);
+      RETURNING *
+        `, [status, id]);
       if (result.rows.length === 0) {
         return res.status(404).json({
           success: false,
@@ -549,7 +576,7 @@ app.post('/accidents/:id/resolve',
       // Check if user is the reporter or an admin
       const accidentCheck = await pool.query(`
         SELECT user_id FROM accidents WHERE id = $1
-      `, [id]);
+        `, [id]);
 
       if (accidentCheck.rows.length === 0) {
         return res.status(404).json({
@@ -562,8 +589,8 @@ app.post('/accidents/:id/resolve',
         UPDATE accidents
         SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
         WHERE id = $1
-        RETURNING *
-      `, [id]);
+      RETURNING *
+        `, [id]);
 
       // Clear cache
       try {
@@ -581,7 +608,7 @@ app.post('/accidents/:id/resolve',
         resolvedAt: new Date().toISOString()
       });
 
-      console.log(`✅ Accident #${id} resolved by user ${userId}`);
+      console.log(`✅ Accident #${id} resolved by user ${userId} `);
 
       res.json({
         success: true,
@@ -597,6 +624,7 @@ app.post('/accidents/:id/resolve',
     }
   }
 );
+
 async function notifyNearbyUsers(accident, radiusMeters) {
   try {
     const keys = await redis.keys('user:*:location');
@@ -637,13 +665,13 @@ async function notifyNearbyUsers(accident, radiusMeters) {
         const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
         const axios = require('axios');
         await axios.post(
-          `${notificationServiceUrl}/notifications/send`,
+          `${notificationServiceUrl} /notifications/send`,
           {
             userIds: nearbyUsers.map(id => parseInt(id)),
             accidentId: accident.id,
             type: 'accident_confirmed',
             title: `🚨 Осол илэрлээ`,
-            message: `AI-аар баталгаажсан осол илэрлээ. ${accident.description ? accident.description.substring(0, 50) : 'Байршил: ' + accident.latitude + ', ' + accident.longitude}`,
+            message: `AI - аар баталгаажсан осол илэрлээ.${accident.description ? accident.description.substring(0, 50) : 'Байршил: ' + accident.latitude + ', ' + accident.longitude} `,
             data: {
               latitude: String(accident.latitude),
               longitude: String(accident.longitude),
@@ -663,13 +691,14 @@ async function notifyNearbyUsers(accident, radiusMeters) {
     throw error;
   }
 }
+
 app.post('/accidents/:id/notify', async (req, res) => {
   try {
     const { id } = req.params;
     const { radiusMeters = 5000 } = req.body;
     const result = await pool.query(`
       SELECT * FROM accidents WHERE id = $1
-    `, [id]);
+        `, [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -694,8 +723,7 @@ app.post('/accidents/:id/notify', async (req, res) => {
     }
     res.json({
       success: true,
-      message: 'Мэдэгдэл илгээгдлээ',
-      accidentId: accident.id
+      message: 'Мэдэгдэл илгээгдлээ'
     });
   } catch (error) {
     console.error('POST /accidents/:id/notify error:', error);
@@ -705,18 +733,7 @@ app.post('/accidents/:id/notify', async (req, res) => {
     });
   }
 });
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; 
-  const φ1 = lat1 * Math.PI / 180;
-  const φ2 = lat2 * Math.PI / 180;
-  const Δφ = (lat2 - lat1) * Math.PI / 180;
-  const Δλ = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
@@ -750,15 +767,17 @@ app.get('/health', async (req, res) => {
   const statusCode = hasError ? 503 : 200;
   res.status(statusCode).json(health);
 });
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
     success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Серверийн алдаа гарлаа' 
+    error: process.env.NODE_ENV === 'production'
+      ? 'Серверийн алдаа гарлаа'
       : err.message,
   });
 });
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   server.close(() => {
@@ -771,12 +790,14 @@ process.on('SIGTERM', async () => {
   await redis.quit();
   process.exit(0);
 });
+
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down...');
   await pool.end();
   await redis.quit();
   process.exit(0);
 });
+
 cron.schedule('*/10 * * * *', async () => {
   try {
     console.log('🕐 Running auto-resolution check...');
@@ -784,19 +805,19 @@ cron.schedule('*/10 * * * *', async () => {
     const result = await pool.query(`
       UPDATE accidents
       SET status = 'resolved', updated_at = NOW()
-      WHERE id IN (
-        SELECT a.id
+      WHERE id IN(
+          SELECT a.id
         FROM accidents a
         LEFT JOIN false_reports fr ON a.id = fr.accident_id
-        WHERE a.status IN ('confirmed', 'reported')
+        WHERE a.status IN('confirmed', 'reported')
           AND a.accident_time < $1
         GROUP BY a.id
         HAVING COUNT(fr.id) = 0
-      )
+        )
       RETURNING id, accident_time, status
-    `, [oneHourAgo]);
+        `, [oneHourAgo]);
     if (result.rowCount > 0) {
-      console.log(`✅ Auto-resolved ${result.rowCount} accident(s) older than 1 hour`);
+      console.log(`✅ Auto - resolved ${result.rowCount} accident(s) older than 1 hour`);
       result.rows.forEach(acc => {
         console.log(`   - Accident #${acc.id} (time: ${acc.accident_time})`);
       });
@@ -815,14 +836,17 @@ cron.schedule('*/10 * * * *', async () => {
     console.error('❌ Auto-resolution error:', error.message);
   }
 });
+
 console.log('✅ Auto-resolution scheduler started (every 10 minutes)');
+
 server.listen(PORT, () => {
-  console.log(`Accident Service running on port ${PORT}`);
+  console.log(`Accident Service running on port ${PORT} `);
   console.log(`Socket.IO ready for WebSocket connections`);
   console.log(`Security: Helmet enabled`);
-  console.log(`Rate limiting: User-based (100 req/min)`);
-  console.log(`Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
-  console.log(`Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
-  console.log(`Auto-resolution: Enabled (1 hour threshold)`);
+  console.log(`Rate limiting: User - based(100 req / min)`);
+  console.log(`Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432} `);
+  console.log(`Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379} `);
+  console.log(`Auto - resolution: Enabled(1 hour threshold)`);
 });
+
 module.exports = app;

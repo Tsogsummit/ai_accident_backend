@@ -73,8 +73,7 @@ function exportUsers() {
     'ID': u.id,
     'Нэр': u.name || '',
     'Утас': u.phone || '',
-    'Имэйл': u.email || '',
-    'Төлөв': u.status
+    'Имэйл': u.email || ''
   }));
   exportToCSV(exportData, `users_${formatDate(new Date())}.csv`);
 }
