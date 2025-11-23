@@ -544,6 +544,7 @@ app.get('/admin/services/health', authenticateAdmin, async (req, res) => {
     { name: 'Map Service', url: process.env.MAP_SERVICE_URL || 'http://map-service:3006' },
     { name: 'Report Service', url: process.env.REPORT_SERVICE_URL || 'http://report-service:3007' },
     { name: 'Camera Service', url: CAMERA_SERVICE_URL },
+    { name: 'Gemini Service', url: process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3010' },
   ];
   const healthChecks = await Promise.all(
     services.map(async (service) => {

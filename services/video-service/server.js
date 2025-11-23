@@ -16,6 +16,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ✅ Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -26,7 +30,7 @@ const pool = new Pool({
 const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 100 * 1024 * 1024, 
+    fileSize: 100 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
@@ -41,55 +45,46 @@ app.post('/upload', upload.single('video'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { userId, latitude, longitude, description } = req.body;
+    const authHeader = req.headers['authorization']; // Get token to pass to accident-service
+
     console.log('📹 Video upload started');
     console.log('   userId:', userId);
     console.log('   latitude:', latitude);
     console.log('   longitude:', longitude);
+
     if (!req.file) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Бичлэг файл байхгүй байна' 
+        error: 'Бичлэг файл байхгүй байна'
       });
     }
+
     if (!userId || !latitude || !longitude) {
       await fs.unlink(req.file.path);
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'userId, latitude, longitude шаардлагатай' 
+        error: 'userId, latitude, longitude шаардлагатай'
       });
     }
+
     const file = req.file;
     const fileName = `${Date.now()}-${userId}-${file.originalname}`;
     const filePath = `uploads/${fileName}`;
+
     console.log(`📹 Video: ${file.originalname} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
+
     await client.query('BEGIN');
-    const accidentResult = await client.query(`
-      INSERT INTO accidents (
-        user_id, latitude, longitude, description, 
-        status, source, accident_time
+
+    // 1. Insert Video Record FIRST (without accident_id initially)
+    const videoResult = await client.query(`
+      INSERT INTO videos (
+        user_id, file_name, file_path, file_size, 
+        mime_type, status, uploaded_at
       )
       VALUES ($1, $2, $3, $4, $5, $6, NOW())
       RETURNING *
     `, [
       userId,
-      parseFloat(latitude),
-      parseFloat(longitude),
-      description || 'Хэрэглэгчээс бичигдсэн бичлэг',
-      'reported',
-      'user'
-    ]);
-    const accident = accidentResult.rows[0];
-    console.log(`✅ Accident created: ID=${accident.id}`);
-    const videoResult = await client.query(`
-      INSERT INTO videos (
-        user_id, accident_id, file_name, file_path, file_size, 
-        mime_type, status, uploaded_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      RETURNING *
-    `, [
-      userId,
-      accident.id, 
       file.originalname,
       filePath,
       file.size,
@@ -98,48 +93,92 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     ]);
     const video = videoResult.rows[0];
     console.log(`✅ Video created: ID=${video.id}`);
-    await client.query(`
-      UPDATE accidents 
-      SET video_id = $1
-      WHERE id = $2
-    `, [video.id, accident.id]);
-    console.log(`✅ Accident-Video linked: A-${accident.id} ↔ V-${video.id}`);
+
+    await client.query('COMMIT'); // Commit video so accident-service can see it if needed (though it updates it)
+
+    // 2. Call Accident Service to Create/Deduplicate Accident
+    const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
+    console.log(`🔄 Calling Accident Service at ${accidentServiceUrl}...`);
+
+    let accidentData;
+    try {
+      const accidentResponse = await axios.post(
+        `${accidentServiceUrl}/accidents`,
+        {
+          latitude: parseFloat(latitude),
+          longitude: parseFloat(longitude),
+          description: description || 'Хэрэглэгчээс бичигдсэн бичлэг',
+          videoId: video.id // Pass the video ID we just created
+        },
+        {
+          headers: {
+            'Authorization': authHeader, // Pass the user's token
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (accidentResponse.data.success) {
+        accidentData = accidentResponse.data.data;
+        console.log(`✅ Accident Service responded: ID=${accidentData.id} (${accidentResponse.data.message})`);
+      } else {
+        throw new Error(accidentResponse.data.error || 'Accident service returned unsuccessful');
+      }
+    } catch (serviceError) {
+      console.error('❌ Failed to call Accident Service:', serviceError.message);
+      if (serviceError.response) {
+        console.error('   Response:', serviceError.response.data);
+      }
+      // Rollback video if accident creation fails? 
+      // Or keep video as "orphaned"? 
+      // Let's delete the video to be safe and consistent.
+      await client.query('DELETE FROM videos WHERE id = $1', [video.id]);
+      await fs.unlink(req.file.path);
+      throw new Error('Осол бүртгэхэд алдаа гарлаа (Accident Service)');
+    }
+
+    // 3. Move file to final location
     const finalPath = path.join(__dirname, 'uploads', fileName);
     await fs.rename(file.path, finalPath);
     console.log(`✅ File saved: ${finalPath}`);
-    await client.query('COMMIT');
+
+    // 4. Trigger AI Detection
     const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
-    const relativeFilePath = fileName; 
+    const relativeFilePath = fileName;
+
     triggerAIDetection(video.id, userId, relativeFilePath, parseFloat(latitude), parseFloat(longitude), description || 'Хэрэглэгчээс бичигдсэн бичлэг')
       .catch(err => {
         console.error('⚠️ Failed to trigger AI detection:', err.message);
       });
+
     res.status(200).json({
       success: true,
       message: 'Видео амжилттай илгээгдлээ. AI шалгалт эхэллээ.',
       videoId: video.id,
-      accidentId: accident.id,
+      accidentId: accidentData.id,
       status: 'uploaded',
       aiProcessing: true,
       accident: {
-        id: accident.id,
-        latitude: accident.latitude,
-        longitude: accident.longitude,
-        status: accident.status,
-        description: accident.description
+        id: accidentData.id,
+        latitude: accidentData.latitude,
+        longitude: accidentData.longitude,
+        status: accidentData.status,
+        description: accidentData.description
       }
     });
+
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK'); // Just in case
     console.error('❌ Video upload error:', error);
     if (req.file) {
       try {
-        await fs.unlink(req.file.path);
+        // Check if file exists before trying to delete (it might have been moved)
+        await fs.access(req.file.path).then(() => fs.unlink(req.file.path)).catch(() => { });
       } catch (e) {
         console.error('Failed to delete temp file:', e);
       }
     }
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: error.message || 'Бичлэг upload хийхэд алдаа гарлаа'
     });
@@ -167,17 +206,17 @@ app.get('/videos/:id/status', async (req, res) => {
       WHERE v.id = $1
     `, [id]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Бичлэг олдсонгүй' 
+        error: 'Бичлэг олдсонгүй'
       });
     }
     const video = result.rows[0];
     let aiDetection = null;
     if (video.ai_detected_objects) {
       try {
-        const detectedObjects = typeof video.ai_detected_objects === 'string' 
-          ? JSON.parse(video.ai_detected_objects) 
+        const detectedObjects = typeof video.ai_detected_objects === 'string'
+          ? JSON.parse(video.ai_detected_objects)
           : video.ai_detected_objects;
         aiDetection = {
           status: video.ai_detection_status || 'pending',
@@ -228,9 +267,9 @@ app.get('/videos/:id/status', async (req, res) => {
     });
   } catch (error) {
     console.error('Video status error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Статус шалгахад алдаа гарлаа' 
+      error: 'Статус шалгахад алдаа гарлаа'
     });
   }
 });
@@ -261,9 +300,9 @@ app.get('/videos', async (req, res) => {
     });
   } catch (error) {
     console.error('Get videos error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Бичлэг жагсаалт авахад алдаа гарлаа' 
+      error: 'Бичлэг жагсаалт авахад алдаа гарлаа'
     });
   }
 });
@@ -277,16 +316,16 @@ app.delete('/videos/:id', async (req, res) => {
       SELECT file_path, user_id, accident_id FROM videos WHERE id = $1
     `, [id]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Бичлэг олдсонгүй' 
+        error: 'Бичлэг олдсонгүй'
       });
     }
     const video = result.rows[0];
     if (video.user_id !== parseInt(userId)) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        error: 'Бичлэг устгах эрхгүй' 
+        error: 'Бичлэг устгах эрхгүй'
       });
     }
     try {
@@ -296,16 +335,16 @@ app.delete('/videos/:id', async (req, res) => {
     }
     await client.query(`DELETE FROM videos WHERE id = $1`, [id]);
     await client.query('COMMIT');
-    res.json({ 
+    res.json({
       success: true,
-      message: 'Бичлэг амжилттай устгагдлаа' 
+      message: 'Бичлэг амжилттай устгагдлаа'
     });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Video delete error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Бичлэг устгахад алдаа гарлаа' 
+      error: 'Бичлэг устгахад алдаа гарлаа'
     });
   } finally {
     client.release();
@@ -323,7 +362,7 @@ async function triggerAIDetection(videoId, userId, filePath, latitude, longitude
       longitude: longitude,
       description: description
     }, {
-      timeout: 5000 
+      timeout: 5000
     });
     console.log(`✅ AI detection triggered: videoId=${videoId}, status=${response.data.status}`);
     return response.data;
@@ -354,9 +393,9 @@ app.post('/videos/:id/retry-ai', async (req, res) => {
       WHERE v.id = $1
     `, [id]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Бичлэг олдсонгүй' 
+        error: 'Бичлэг олдсонгүй'
       });
     }
     const video = result.rows[0];
@@ -384,14 +423,14 @@ app.post('/videos/:id/retry-ai', async (req, res) => {
     }
   } catch (error) {
     console.error('Retry AI detection error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Алдаа гарлаа' 
+      error: 'Алдаа гарлаа'
     });
   }
 });
 app.get('/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'healthy',
     service: 'video-service',
     timestamp: new Date().toISOString()

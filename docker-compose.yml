@@ -246,6 +246,18 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  gemini-service:
+    build: ./services/gemini-service
+    container_name: accident_gemini_service
+    ports:
+      - "3010:3010"
+    environment:
+      - PORT=3010
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    networks:
+      - accident_network
+    restart: unless-stopped
+
   ai-detection-service:
     build:
       context: ./services/ai-detection-service
