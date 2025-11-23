@@ -49,6 +49,7 @@ app.use(cors({
 
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -328,7 +329,7 @@ app.post('/accidents',
           SELECT id, report_count, description, latitude, longitude, video_id
           FROM accidents
           WHERE status IN ('reported', 'confirmed')
-            AND accident_time > NOW() - INTERVAL '${DUPLICATE_TIME_MINUTES} minutes'
+          AND accident_time > NOW() - INTERVAL '${DUPLICATE_TIME_MINUTES} minutes'
           ORDER BY accident_time DESC
           LIMIT 100
         `);
@@ -484,6 +485,100 @@ app.post('/accidents',
   }
 );
 
+// ✅ NEW: Endpoint for Report Service to forward image reports
+app.post('/accidents/report-image',
+  authenticateToken,
+  upload.single('image'),
+  async (req, res) => {
+    const client = await pool.connect();
+    try {
+      const { latitude, longitude, description, analysisData } = req.body;
+      const userId = req.user.userId;
+
+      console.log(`📸 Received image report from Report Service for user ${userId}`);
+
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: 'Image file is required' });
+      }
+
+      // Parse analysis data if provided
+      let analysis = {};
+      try {
+        if (analysisData) {
+          analysis = JSON.parse(analysisData);
+        }
+      } catch (e) {
+        console.warn('Failed to parse analysis data:', e);
+      }
+
+      // Construct image URL (assuming local storage for now)
+      const imageUrl = `${process.env.API_URL || 'http://localhost:3002'}/uploads/${req.file.filename}`;
+
+      await client.query('BEGIN');
+
+      // Create accident
+      const accidentResult = await client.query(`
+        INSERT INTO accidents(
+            user_id, latitude, longitude, description,
+            status, source, image_url, accident_time, report_count
+          )
+        VALUES($1, $2, $3, $4, $5, $6, $7, NOW(), 1)
+        RETURNING *
+          `, [
+        userId,
+        latitude,
+        longitude,
+        description || analysis.description || 'AI Detected Accident',
+        'reported',
+        'user',
+        imageUrl
+      ]);
+
+      const accident = accidentResult.rows[0];
+
+      // Add report details
+      await client.query(`
+        INSERT INTO accident_reports(accident_id, user_id, latitude, longitude, description)
+        VALUES($1, $2, $3, $4, $5)
+            `, [accident.id, userId, latitude, longitude, description || analysis.description]);
+
+      await client.query('COMMIT');
+
+      // Clear cache
+      try {
+        const keys = await redis.keys('accidents:*');
+        if (keys.length > 0) await redis.del(...keys);
+      } catch (redisErr) {
+        console.warn('Cache clear failed:', redisErr.message);
+      }
+
+      // Notify nearby users
+      notifyNearbyUsers(accident, 5000).catch(err =>
+        console.error('Notification error:', err)
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Осол амжилттай бүртгэгдлээ',
+        data: accident
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('POST /accidents/report-image error:', error);
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      res.status(500).json({
+        success: false,
+        error: 'Осол бүртгэхэд алдаа гарлаа'
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
 app.get('/accidents/:id',
   authenticateToken,
   async (req, res) => {
@@ -516,7 +611,8 @@ app.get('/accidents/:id',
         LEFT JOIN ai_detections aid ON v.id = aid.video_id
         LEFT JOIN cameras c ON a.camera_id = c.id
         WHERE a.id = $1
-            `, [id, currentUserId]);
+      `, [id, currentUserId]);
+
       if (result.rows.length === 0) {
         return res.status(404).json({
           success: false,
@@ -691,13 +787,13 @@ async function notifyNearbyUsers(accident, radiusMeters) {
         const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3005';
         const axios = require('axios');
         await axios.post(
-          `${notificationServiceUrl} / notifications / send`,
+          `${notificationServiceUrl}/notifications/send`,
           {
             userIds: nearbyUsers.map(id => parseInt(id)),
             accidentId: accident.id,
             type: 'accident_confirmed',
             title: `🚨 Осол илэрлээ`,
-            message: `AI - аар баталгаажсан осол илэрлээ.${accident.description ? accident.description.substring(0, 50) : 'Байршил: ' + accident.latitude + ', ' + accident.longitude} `,
+            message: `AI-аар баталгаажсан осол илэрлээ. ${accident.description ? accident.description.substring(0, 50) : 'Байршил: ' + accident.latitude + ', ' + accident.longitude}`,
             data: {
               latitude: String(accident.latitude),
               longitude: String(accident.longitude),
@@ -800,7 +896,7 @@ app.get('/admin/health', authenticateToken, async (req, res) => {
   // Check Gemini Service
   try {
     const axios = require('axios');
-    const geminiUrl = process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3005';
+    const geminiUrl = process.env.GEMINI_SERVICE_URL || 'http://localhost:3010';
     const response = await axios.get(`${geminiUrl}/health`, { timeout: 2000 });
     health.components.geminiService.status = response.data.status === 'healthy' ? 'healthy' : 'unhealthy';
   } catch (e) {
@@ -812,138 +908,23 @@ app.get('/admin/health', authenticateToken, async (req, res) => {
   res.json(health);
 });
 
-// ✅ NEW: Report accident via Image (Gemini Integration)
-app.post('/accidents/report-image',
-  authenticateToken,
-  upload.single('image'),
-  async (req, res) => {
-    try {
-      const { latitude, longitude, description } = req.body;
-      const userId = req.user.userId;
-
-      if (!req.file) {
-        return res.status(400).json({ success: false, error: 'Зураг оруулах шаардлагатай' });
-      }
-
-      console.log(`📸 Image report started for User ${userId}`);
-
-      // 1. Call Gemini Service
-      const geminiServiceUrl = process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3005';
-      const formData = new FormData();
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-
-      formData.append('image', blob, req.file.originalname);
-
-      console.log(`🔄 Calling Gemini Service at ${geminiServiceUrl}...`);
-
-      let analysis;
-      try {
-        const geminiResponse = await fetch(`${geminiServiceUrl}/analyze`, {
-          method: 'POST',
-          body: formData
-        });
-        const geminiData = await geminiResponse.json();
-
-        if (!geminiData.success) {
-          throw new Error(geminiData.error || 'Gemini service failed');
-        }
-        analysis = geminiData;
-        console.log('🤖 Gemini Analysis:', analysis);
-      } catch (geminiErr) {
-        console.error('❌ Gemini Service Error:', geminiErr.message);
-        // Fallback or error? Let's error for now as this is the core feature.
-        throw new Error('AI шалгалт амжилтгүй боллоо');
-      } finally {
-        // Cleanup temp file
-        fs.unlinkSync(req.file.path);
-      }
-
-      // 2. Process Analysis
-      if (analysis.isAccident) {
-        // Create Accident
-        const client = await pool.connect();
-        try {
-          await client.query('BEGIN');
-
-          // Deduplication Logic (Simplified for now, can reuse existing)
-          // ... (Omitting full deduplication for brevity, but should be here)
-
-          const insertResult = await client.query(`
-                  INSERT INTO accidents (
-                      user_id, latitude, longitude, description, 
-                      status, source, accident_time, image_url
-                  )
-                  VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
-                  RETURNING *
-              `, [
-            userId,
-            parseFloat(latitude),
-            parseFloat(longitude),
-            analysis.description || description || 'AI detected accident',
-            'confirmed', // Auto-confirm if Gemini says yes? Or 'reported'? Let's say 'confirmed' for now as per user request.
-            'user_image',
-            'TODO_IMAGE_URL_STORAGE' // We need to store the image properly. For now, placeholder.
-          ]);
-
-          const accident = insertResult.rows[0];
-          await client.query('COMMIT');
-
-          // Notify
-          notifyNearbyUsers(accident, 5000).catch(console.error);
-
-          res.json({
-            success: true,
-            message: 'Осол бүртгэгдлээ (AI баталгаажсан)',
-            data: accident,
-            analysis: analysis
-          });
-
-        } catch (dbErr) {
-          await client.query('ROLLBACK');
-          throw dbErr;
-        } finally {
-          client.release();
-        }
-      } else {
-        // Reject
-        res.json({
-          success: false,
-          message: 'Осол биш байна (AI)',
-          analysis: analysis
-        });
-      }
-
-    } catch (error) {
-      console.error('POST /accidents/report-image error:', error);
-      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-      res.status(500).json({ success: false, error: error.message || 'Алдаа гарлаа' });
-    }
-  });
-
 app.post('/accidents/:id/notify', async (req, res) => {
   try {
     const { id } = req.params;
-    const { radiusMeters = 5000 } = req.body;
-    const result = await pool.query(`
-      SELECT * FROM accidents WHERE id = $1
-            `, [id]);
-    if (result.rows.length === 0) {
+    const { message } = req.body;
+    const accidentResult = await pool.query('SELECT * FROM accidents WHERE id = $1', [id]);
+    if (accidentResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Осол олдсонгүй'
       });
     }
-    const accident = result.rows[0];
-    notifyNearbyUsers(accident, radiusMeters).catch(err => {
-      console.error('Notification error:', err);
-    });
+    const accident = accidentResult.rows[0];
+    notifyNearbyUsers(accident, 5000).catch(err =>
+      console.error('Notification error:', err)
+    );
     try {
-      const keys = await redis.keys('accidents:*');
-      const mapKeys = await redis.keys('map_markers:*');
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
+      const mapKeys = await redis.keys('accidents:*');
       if (mapKeys.length > 0) {
         await redis.del(...mapKeys);
       }

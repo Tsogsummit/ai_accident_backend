@@ -6,10 +6,18 @@ const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
 
-dotenv.config();
+// Try to load from root .env if not found in current dir
+const rootEnvPath = path.resolve(__dirname, '../../.env');
+if (fs.existsSync(rootEnvPath)) {
+    dotenv.config({ path: rootEnvPath });
+    console.log(`✅ Loaded .env from ${rootEnvPath}`);
+} else {
+    dotenv.config();
+    console.log('⚠️ Loaded .env from current directory (or defaults)');
+}
 
 const app = express();
-const PORT = process.env.PORT || 3005;
+const PORT = process.env.PORT || 3010;
 
 app.use(cors());
 app.use(express.json());
@@ -45,7 +53,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         if (!process.env.GEMINI_API_KEY) {
             console.warn('⚠️ No GEMINI_API_KEY found. Returning MOCK response.');
             // Cleanup
-            fs.unlinkSync(filePath);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             return res.json({
                 success: true,
                 isAccident: true,
@@ -55,7 +63,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
             });
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const prompt = `
       Analyze this image for a car accident. 
@@ -68,7 +76,14 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
       Do not include markdown formatting like \`\`\`json. Just the raw JSON string.
     `;
 
-        const imagePart = fileToGenerativePart(filePath, mimeType);
+        // Read file and convert to base64
+        const fileBuffer = fs.readFileSync(filePath);
+        const imagePart = {
+            inlineData: {
+                data: fileBuffer.toString("base64"),
+                mimeType: mimeType
+            },
+        };
 
         const result = await model.generateContent([prompt, imagePart]);
         const response = await result.response;
@@ -88,7 +103,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         }
 
         // Cleanup temp file
-        fs.unlinkSync(filePath);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
         res.json({
             success: true,
@@ -100,7 +115,11 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 

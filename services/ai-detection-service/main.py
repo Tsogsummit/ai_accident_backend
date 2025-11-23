@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Tuple
@@ -771,21 +771,17 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                 """, (str(e), request.videoId))
                 db_conn.commit()
                 cursor.close()
-                logger.info(f"✅ Updated video {request.videoId} status to 'failed'")
-            except Exception as db_err:
-                logger.error(f"❌ Failed to update video status on error: {db_err}", exc_info=True)
+            except Exception:
+                pass
             finally:
-                if db_conn:
-                    try:
-                        db_conn.close()
-                    except Exception:
-                        pass
-        raise
+                try:
+                    db_conn.close()
+                except Exception:
+                    pass
 
 @app.get("/health")
 async def health():
     return {
-        "status": "healthy",
         "service": "ai-detection-service",
         "version": "3.0.0-yolov8m",
         "model": "YOLOv8m (Medium - Higher Accuracy)",
@@ -806,6 +802,74 @@ async def health():
             "Better collision detection sensitivity"
         ]
     }
+
+@app.post("/analyze/image")
+async def analyze_image_endpoint(image: UploadFile = File(...)):
+    try:
+        contents = await image.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            raise HTTPException(status_code=400, detail="Invalid image file")
+
+        # Run YOLO detection
+        results = model(
+            img,
+            conf=config.MODEL_CONFIDENCE,
+            iou=config.IOU_THRESHOLD,
+            max_det=config.MAX_DET,
+            verbose=False
+        )
+        
+        detections = []
+        vehicle_count = 0
+        
+        for result in results:
+            boxes = result.boxes
+            if len(boxes) == 0:
+                continue
+                
+            for box, conf, cls in zip(boxes.xyxy.cpu().numpy(), boxes.conf.cpu().numpy(), boxes.cls.cpu().numpy()):
+                class_name = model.names[int(cls)]
+                if class_name in OptimizedVehicleTracker.VEHICLE_CLASSES:
+                    vehicle_count += 1
+                    detections.append({
+                        "bbox": box.tolist(),
+                        "confidence": float(conf),
+                        "class": class_name
+                    })
+
+        has_accident = False
+        confidence = 0.0
+        
+        if len(detections) >= 2:
+            # Check for proximity
+            positions = [((d['bbox'][0] + d['bbox'][2])/2, (d['bbox'][1] + d['bbox'][3])/2) for d in detections]
+            close_pairs = 0
+            for i in range(len(positions)):
+                for j in range(i + 1, len(positions)):
+                    dist = euclidean(positions[i], positions[j])
+                    if dist < 80.0: # Clustering distance
+                        close_pairs += 1
+            
+            if close_pairs > 0:
+                has_accident = True
+                confidence = min(0.9, 0.5 + close_pairs * 0.1)
+        
+        return {
+            "success": True,
+            "data": {
+                "hasAccident": has_accident,
+                "confidence": confidence,
+                "vehicleCount": vehicle_count,
+                "detections": detections
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Image analysis failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/detect/video")
 async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks: BackgroundTasks):
@@ -872,6 +936,15 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
     except Exception as e:
         logger.error(f"❌ Error starting video detection: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "ai-detection-service",
+        "model_loaded": model is not None,
+        "model_path": MODEL_PATH
+    }
 
 if __name__ == "__main__":
     import uvicorn

@@ -3,6 +3,9 @@ uvicorn[standard]
 opencv-python-headless
 numpy
 pandas
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
 ultralytics
 google-cloud-storage
 google-cloud-pubsub
@@ -10,3 +13,4 @@ psycopg2-binary
 pillow
 scipy
 requests
+python-multipart

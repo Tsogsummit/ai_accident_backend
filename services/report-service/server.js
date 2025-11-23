@@ -1,9 +1,29 @@
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
+const multer = require('multer');
+const FormData = require('form-data');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+// Try to load from root .env if not found in current dir
+const rootEnvPath = path.resolve(__dirname, '../../.env');
+if (fs.existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
+  console.log(`✅ Loaded .env from ${rootEnvPath}`);
+} else {
+  dotenv.config();
+  console.log('⚠️ Loaded .env from current directory (or defaults)');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3007;
 app.use(express.json());
+
+// Configure Multer for temporary storage
+const upload = multer({ dest: 'uploads/' });
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -28,6 +48,7 @@ const redis = new Redis({
 redis.on('error', (err) => {
   console.error('Redis error:', err);
 });
+
 app.get('/false-reports', async (req, res) => {
   try {
     const { accidentId, userId, reasonId, limit = 50, offset = 0 } = req.query;
@@ -69,12 +90,13 @@ app.get('/false-reports', async (req, res) => {
     });
   } catch (error) {
     console.error('Get false reports error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Буруу мэдээлэл авахад алдаа гарлаа' 
+      error: 'Буруу мэдээлэл авахад алдаа гарлаа'
     });
   }
 });
+
 app.post('/false-reports', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -144,6 +166,7 @@ app.post('/false-reports', async (req, res) => {
     client.release();
   }
 });
+
 app.get('/false-reports/reasons', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -155,12 +178,13 @@ app.get('/false-reports/reasons', async (req, res) => {
     });
   } catch (error) {
     console.error('Get report reasons error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Шалтгаан авахад алдаа гарлаа' 
+      error: 'Шалтгаан авахад алдаа гарлаа'
     });
   }
 });
+
 app.get('/reports/statistics', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -258,9 +282,9 @@ app.get('/reports/statistics', async (req, res) => {
     res.json({
       success: true,
       data: {
-        period: { 
-          start: start.toISOString(), 
-          end: end.toISOString() 
+        period: {
+          start: start.toISOString(),
+          end: end.toISOString()
         },
         summary: {
           totalAccidents: parseInt(totalAccidents.rows[0].count),
@@ -284,13 +308,14 @@ app.get('/reports/statistics', async (req, res) => {
     });
   } catch (error) {
     console.error('Get statistics error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Статистик авахад алдаа гарлаа',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
+
 app.get('/reports/user-activity', async (req, res) => {
   try {
     const { userId, limit = 50, offset = 0 } = req.query;
@@ -327,12 +352,13 @@ app.get('/reports/user-activity', async (req, res) => {
     });
   } catch (error) {
     console.error('Get user activity error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Идэвх авахад алдаа гарлаа' 
+      error: 'Идэвх авахад алдаа гарлаа'
     });
   }
 });
+
 app.get('/reports/camera-performance', async (req, res) => {
   try {
     const { cameraId } = req.query;
@@ -373,12 +399,13 @@ app.get('/reports/camera-performance', async (req, res) => {
     });
   } catch (error) {
     console.error('Get camera performance error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Гүйцэтгэл авахад алдаа гарлаа' 
+      error: 'Гүйцэтгэл авахад алдаа гарлаа'
     });
   }
 });
+
 app.get('/reports/ai-accuracy', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -433,9 +460,9 @@ app.get('/reports/ai-accuracy', async (req, res) => {
     res.json({
       success: true,
       data: {
-        period: { 
-          start: start.toISOString(), 
-          end: end.toISOString() 
+        period: {
+          start: start.toISOString(),
+          end: end.toISOString()
         },
         processing: {
           totalVideos: parseInt(stats.total_videos_processed),
@@ -458,12 +485,13 @@ app.get('/reports/ai-accuracy', async (req, res) => {
     });
   } catch (error) {
     console.error('Get AI accuracy error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'AI нарийвчлал авахад алдаа гарлаа' 
+      error: 'AI нарийвчлал авахад алдаа гарлаа'
     });
   }
 });
+
 app.get('/reports/export', async (req, res) => {
   try {
     const { type = 'accidents', startDate, endDate } = req.query;
@@ -547,42 +575,187 @@ app.get('/reports/export', async (req, res) => {
         filename = 'user_activity.csv';
         break;
       default:
-        return res.status(400).json({ 
+        return res.status(400).json({
           success: false,
-          error: 'Буруу тайлангийн төрөл' 
+          error: 'Буруу тайлангийн төрөл'
         });
     }
     const result = await pool.query(query, [start.toISOString(), end.toISOString()]);
     const rows = result.rows;
     if (rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Өгөгдөл олдсонгүй' 
+        error: 'Өгөгдөл олдсонгүй'
       });
     }
     const headers = Object.keys(rows[0]).join(',');
-    const csvData = [
-      headers,
-      ...rows.map(row => Object.values(row).map(val => {
-        if (val === null || val === undefined) return '';
-        const str = String(val);
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      }).join(','))
-    ].join('\n');
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csvData); 
+    const csv = [headers, ...rows.map(row => Object.values(row).map(val =>
+      typeof val === 'string' ? `"${val.replace(/"/g, '""')}"` : val
+    ).join(','))].join('\n');
+
+    res.header('Content-Type', 'text/csv');
+    res.attachment(filename);
+    return res.send(csv);
+
   } catch (error) {
-    console.error('Export report error:', error);
-    res.status(500).json({ 
+    console.error('Export error:', error);
+    res.status(500).json({
       success: false,
-      error: 'Тайлан татахад алдаа гарлаа' 
+      error: 'Тайлан татахад алдаа гарлаа'
     });
   }
 });
+
+// Middleware to extract token for forwarding (and basic validation)
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Нэвтрэх шаардлагатай'
+    });
+  }
+  // We just pass it through, but we could verify it if we shared the secret.
+  // For now, we trust the gateway or just forward it to accident-service which will verify.
+  // But to be safe and consistent with other services:
+  const jwt = require('jsonwebtoken');
+  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+    if (err) {
+      console.error('Token verification failed:', err.message);
+      return res.status(403).json({
+        success: false,
+        error: 'Хүчингүй токен'
+      });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+app.post('/reports/image',
+  authenticateToken,
+  upload.single('image'),
+  async (req, res) => {
+    try {
+      const { latitude, longitude, description } = req.body;
+      const authHeader = req.headers['authorization'];
+
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: 'Image file is required' });
+      }
+
+      if (!latitude || !longitude) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ success: false, error: 'latitude, longitude заавал байх ёстой' });
+      }
+
+      console.log(`📸 Processing image report in Report Service`);
+
+      // 1. Call Gemini Service
+      const geminiServiceUrl = process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3010';
+      console.log(`🔄 Calling Gemini Service at ${geminiServiceUrl}...`);
+
+      let analysis;
+      try {
+        const formData = new FormData();
+        formData.append('image', fs.createReadStream(req.file.path), {
+          filename: req.file.originalname,
+          contentType: req.file.mimetype,
+        });
+
+        const geminiResponse = await axios.post(`${geminiServiceUrl}/analyze`, formData, {
+          headers: { ...formData.getHeaders() },
+          timeout: 30000
+        });
+
+        if (!geminiResponse.data.success) {
+          throw new Error(geminiResponse.data.error || 'Gemini service failed');
+        }
+        analysis = geminiResponse.data;
+        console.log('🤖 Gemini Analysis Result:', analysis);
+
+      } catch (geminiErr) {
+        console.error('❌ Gemini Service Error:', geminiErr.message);
+        if (geminiErr.response) {
+          console.error('Gemini Service Response Data:', geminiErr.response.data);
+        }
+        throw new Error('AI шалгалт амжилтгүй боллоо: ' + (geminiErr.response?.data?.error || geminiErr.message));
+      }
+
+      // 2. If Accident -> Forward to Accident Service
+      if (analysis.isAccident) {
+        console.log('🚨 Accident detected! Forwarding to Accident Service...');
+
+        const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
+        const formData = new FormData();
+
+        // Re-attach file
+        formData.append('image', fs.createReadStream(req.file.path), {
+          filename: req.file.originalname,
+          contentType: req.file.mimetype,
+        });
+
+        formData.append('latitude', latitude);
+        formData.append('longitude', longitude);
+        if (description) formData.append('description', description);
+
+        // Pass analysis data to skip re-analysis
+        formData.append('skipAnalysis', 'true');
+        formData.append('analysisData', JSON.stringify(analysis));
+
+        const response = await axios.post(
+          `${accidentServiceUrl}/accidents/report-image`,
+          formData,
+          {
+            headers: {
+              ...formData.getHeaders(),
+              'Authorization': authHeader,
+            },
+            timeout: 60000,
+          }
+        );
+
+        // Cleanup temp file
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
+        res.status(response.status).json(response.data);
+
+      } else {
+        // 3. Not Accident -> Return directly
+        console.log('✅ No accident detected. Returning result.');
+
+        // Cleanup temp file
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
+        res.json({
+          success: false,
+          message: 'Осол биш байна (AI)',
+          analysis: analysis
+        });
+      }
+
+    } catch (error) {
+      console.error('Report image error:', error.message);
+
+      // Cleanup temp file
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+
+      if (error.response) {
+        return res.status(error.response.status).json(error.response.data);
+      }
+
+      res.status(500).json({
+        success: false,
+        error: 'Зураг илгээхэд алдаа гарлаа',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+// Health check endpoint
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
@@ -607,13 +780,16 @@ app.get('/health', async (req, res) => {
   const statusCode = health.status === 'healthy' ? 200 : 503;
   res.status(statusCode).json(health);
 });
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   await pool.end();
   await redis.quit();
   process.exit(0);
 });
+
 app.listen(PORT, () => {
   console.log(`📊 Report Service запущен на порту ${PORT}`);
 });
+
 module.exports = app;

@@ -4,6 +4,20 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+// Try to load from root .env if not found in current dir
+const rootEnvPath = path.resolve(__dirname, '../../.env');
+if (fs.existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
+  console.log(`✅ Loaded .env from ${rootEnvPath}`);
+} else {
+  dotenv.config();
+  console.log('⚠️ Loaded .env from current directory (or defaults)');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 app.use(cors({
