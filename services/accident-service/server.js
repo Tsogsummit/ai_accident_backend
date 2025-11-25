@@ -316,6 +316,33 @@ app.post('/accidents',
       const userId = req.user.userId;
       await client.query('BEGIN');
 
+      // ✅ RATE LIMIT: Check if user reported an accident in the last 15 minutes
+      const rateLimitCheck = await client.query(`
+        SELECT ar.created_at, a.latitude, a.longitude, a.id
+        FROM accident_reports ar
+        JOIN accidents a ON ar.accident_id = a.id
+        WHERE ar.user_id = $1
+          AND ar.created_at > NOW() - INTERVAL '15 minutes'
+        ORDER BY ar.created_at DESC
+        LIMIT 1
+      `, [userId]);
+
+      if (rateLimitCheck.rows.length > 0) {
+        const lastReport = rateLimitCheck.rows[0];
+        const minutesAgo = Math.floor((Date.now() - new Date(lastReport.created_at).getTime()) / 60000);
+        const remainingMinutes = 15 - minutesAgo;
+
+        await client.query('ROLLBACK');
+
+        return res.status(429).json({
+          success: false,
+          error: `Та ${remainingMinutes} минутын дараа дахин мэдээлэх боломжтой`,
+          rateLimited: true,
+          remainingMinutes: remainingMinutes,
+          message: `Хэт олон мэдээлэл илгээж байна. ${remainingMinutes} минут хүлээнэ үү.`
+        });
+      }
+
       // ✅ Check for existing nearby accident (deduplication)
       const DUPLICATE_RADIUS_METERS = 200;
       const DUPLICATE_TIME_MINUTES = 60;
@@ -516,31 +543,102 @@ app.post('/accidents/report-image',
 
       await client.query('BEGIN');
 
-      // Create accident
-      const accidentResult = await client.query(`
-        INSERT INTO accidents(
-            user_id, latitude, longitude, description,
-            status, source, image_url, accident_time, report_count
-          )
-        VALUES($1, $2, $3, $4, $5, $6, $7, NOW(), 1)
-        RETURNING *
-          `, [
-        userId,
-        latitude,
-        longitude,
-        description || analysis.description || 'AI Detected Accident',
-        'reported',
-        'user',
-        imageUrl
-      ]);
+      // ✅ RATE LIMIT: Check if user reported an accident in the last 15 minutes
+      const rateLimitCheck = await client.query(`
+        SELECT ar.created_at, a.latitude, a.longitude, a.id
+        FROM accident_reports ar
+        JOIN accidents a ON ar.accident_id = a.id
+        WHERE ar.user_id = $1
+          AND ar.created_at > NOW() - INTERVAL '15 minutes'
+        ORDER BY ar.created_at DESC
+        LIMIT 1
+      `, [userId]);
 
-      const accident = accidentResult.rows[0];
+      if (rateLimitCheck.rows.length > 0) {
+        const lastReport = rateLimitCheck.rows[0];
+        const minutesAgo = Math.floor((Date.now() - new Date(lastReport.created_at).getTime()) / 60000);
+        const remainingMinutes = 15 - minutesAgo;
 
-      // Add report details
-      await client.query(`
-        INSERT INTO accident_reports(accident_id, user_id, latitude, longitude, description)
-        VALUES($1, $2, $3, $4, $5)
-            `, [accident.id, userId, latitude, longitude, description || analysis.description]);
+        await client.query('ROLLBACK');
+
+        // Delete uploaded file since we're rejecting the request
+        if (req.file && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+
+        return res.status(429).json({
+          success: false,
+          error: `Та ${remainingMinutes} минутын дараа дахин мэдээлэх боломжтой`,
+          rateLimited: true,
+          remainingMinutes: remainingMinutes,
+          message: `Хэт олон мэдээлэл илгээж байна. ${remainingMinutes} минут хүлээнэ үү.`
+        });
+      }
+
+      // ✅ Check for existing nearby accidents (within 100 meters, last 2 hours)
+      const nearbyCheck = await client.query(`
+        SELECT id, latitude, longitude, report_count, description
+        FROM accidents
+        WHERE status IN ('reported', 'confirmed')
+          AND accident_time > NOW() - INTERVAL '2 hours'
+          AND calculate_distance($1, $2, latitude, longitude) <= 100
+        ORDER BY calculate_distance($1, $2, latitude, longitude) ASC
+        LIMIT 1
+      `, [latitude, longitude]);
+
+      let accident;
+      let isNewAccident = false;
+
+      if (nearbyCheck.rows.length > 0) {
+        // ✅ Existing accident found - increment report count
+        const existingAccident = nearbyCheck.rows[0];
+        console.log(`🔄 Found existing accident ${existingAccident.id} within 100m - merging reports`);
+
+        const updateResult = await client.query(`
+          UPDATE accidents
+          SET report_count = report_count + 1,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [existingAccident.id]);
+
+        accident = updateResult.rows[0];
+        isNewAccident = false;
+      } else {
+        // ✅ No nearby accident - create new one
+        console.log(`✨ No nearby accident found - creating new accident`);
+
+        const accidentResult = await client.query(`
+          INSERT INTO accidents(
+              user_id, latitude, longitude, description,
+              status, source, image_url, accident_time, report_count
+            )
+          VALUES($1, $2, $3, $4, $5, $6, $7, NOW(), 1)
+          RETURNING *
+            `, [
+          userId,
+          latitude,
+          longitude,
+          description || analysis.description || 'AI Detected Accident',
+          'confirmed',
+          'user',
+          imageUrl
+        ]);
+
+        accident = accidentResult.rows[0];
+        isNewAccident = true;
+      }
+
+      // Add report details (check for duplicate user reports)
+      try {
+        await client.query(`
+          INSERT INTO accident_reports(accident_id, user_id, latitude, longitude, description)
+          VALUES($1, $2, $3, $4, $5)
+          ON CONFLICT (user_id, accident_id) DO NOTHING
+        `, [accident.id, userId, latitude, longitude, description || analysis.description]);
+      } catch (reportErr) {
+        console.warn('Report entry already exists:', reportErr.message);
+      }
 
       await client.query('COMMIT');
 
@@ -552,15 +650,21 @@ app.post('/accidents/report-image',
         console.warn('Cache clear failed:', redisErr.message);
       }
 
-      // Notify nearby users
-      notifyNearbyUsers(accident, 5000).catch(err =>
-        console.error('Notification error:', err)
-      );
+      // ✅ Only notify nearby users if this is a NEW accident (not a duplicate report)
+      if (isNewAccident) {
+        console.log(`📢 Notifying nearby users about new accident ${accident.id}`);
+        notifyNearbyUsers(accident, 5000).catch(err =>
+          console.error('Notification error:', err)
+        );
+      } else {
+        console.log(`🔕 Skipping notification - duplicate report for existing accident ${accident.id}`);
+      }
 
       res.status(201).json({
         success: true,
-        message: 'Осол амжилттай бүртгэгдлээ',
-        data: accident
+        message: isNewAccident ? 'Осол амжилттай бүртгэгдлээ' : 'Таны мэдээлэл бүртгэгдлээ',
+        data: accident,
+        isDuplicate: !isNewAccident
       });
 
     } catch (error) {
