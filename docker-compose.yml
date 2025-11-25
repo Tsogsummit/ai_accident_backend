@@ -430,6 +430,13 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+      # Services
+      GEMINI_SERVICE_URL: http://gemini-service:3010
+      ACCIDENT_SERVICE_URL: http://accident-service:3002
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
     networks:
       - accident_network
     depends_on:

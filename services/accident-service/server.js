@@ -119,11 +119,11 @@ const authenticateToken = (req, res, next) => {
       error: 'Нэвтрэх шаардлагатай'
     });
   }
-  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-in-production', (err, user) => {
     if (err) {
       console.error('Token verification failed:', err.message);
       console.log('Token:', token);
-      console.log('Secret used:', process.env.JWT_SECRET || 'your-secret-key');
+      console.log('Secret used:', process.env.JWT_SECRET || 'your-secret-key-change-in-production');
       return res.status(403).json({
         success: false,
         error: 'Хүчингүй токен'

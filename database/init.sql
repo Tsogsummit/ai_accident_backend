@@ -221,6 +221,41 @@ CREATE TABLE IF NOT EXISTS false_reports (
 CREATE INDEX IF NOT EXISTS idx_false_reports_accident ON false_reports(accident_id);
 CREATE INDEX IF NOT EXISTS idx_false_reports_user ON false_reports(user_id);
 
+-- ✅ NEW: Image submissions table (for pending AI analysis)
+-- This stores all user image uploads before AI confirms if it's an accident
+CREATE TABLE IF NOT EXISTS image_submissions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    latitude DECIMAL(10, 8) NOT NULL,
+    longitude DECIMAL(11, 8) NOT NULL,
+    description TEXT,
+    image_url TEXT,
+
+    -- AI Analysis results
+    ai_analyzed BOOLEAN DEFAULT false,
+    is_accident BOOLEAN DEFAULT NULL,
+    ai_confidence DECIMAL(5, 4),
+    ai_description TEXT,
+    ai_type VARCHAR(50),
+
+    -- If accident confirmed, link to created accident
+    accident_id INTEGER REFERENCES accidents(id) ON DELETE SET NULL,
+
+    -- Status: pending, analyzing, accident_created, no_accident, error
+    status VARCHAR(30) DEFAULT 'pending',
+    error_message TEXT,
+
+    created_at TIMESTAMP DEFAULT NOW(),
+    analyzed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_submissions_user ON image_submissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_image_submissions_status ON image_submissions(status);
+CREATE INDEX IF NOT EXISTS idx_image_submissions_accident ON image_submissions(accident_id);
+CREATE INDEX IF NOT EXISTS idx_image_submissions_coords ON image_submissions USING GIST (
+    ll_to_earth(latitude, longitude)
+);
+
 -- =====================================================
 -- MIGRATION: Ensure UNIQUE constraint exists
 -- For existing databases that may have duplicate reports

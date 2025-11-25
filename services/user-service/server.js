@@ -55,6 +55,7 @@ const redis = new Redis({
 redis.on('error', (err) => console.error('Redis error:', err));
 redis.on('connect', () => console.log('✅ Redis connected'));
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+console.log('🔑 User Service JWT Secret:', JWT_SECRET.substring(0, 5) + '...');
 const JWT_EXPIRES_IN = '7d';
 const REFRESH_TOKEN_EXPIRES_IN = '30d';
 const BCRYPT_ROUNDS = 12;

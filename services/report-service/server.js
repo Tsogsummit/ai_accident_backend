@@ -620,7 +620,10 @@ const authenticateToken = (req, res, next) => {
   // For now, we trust the gateway or just forward it to accident-service which will verify.
   // But to be safe and consistent with other services:
   const jwt = require('jsonwebtoken');
-  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+  const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+  console.log('🔑 Report Service JWT Secret:', JWT_SECRET.substring(0, 5) + '...');
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       console.error('Token verification failed:', err.message);
       return res.status(403).json({
@@ -633,13 +636,58 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// ✅ Get user's image submissions (history)
+app.get('/reports/submissions',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user?.userId;
+      const { limit = 50, offset = 0 } = req.query;
+
+      const result = await pool.query(`
+        SELECT
+          s.*,
+          a.status as accident_status,
+          a.description as accident_description
+        FROM image_submissions s
+        LEFT JOIN accidents a ON s.accident_id = a.id
+        WHERE s.user_id = $1
+        ORDER BY s.created_at DESC
+        LIMIT $2 OFFSET $3
+      `, [userId, parseInt(limit), parseInt(offset)]);
+
+      // Get total count
+      const countResult = await pool.query(
+        'SELECT COUNT(*) FROM image_submissions WHERE user_id = $1',
+        [userId]
+      );
+
+      res.json({
+        success: true,
+        data: result.rows,
+        total: parseInt(countResult.rows[0].count),
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      });
+    } catch (error) {
+      console.error('Get submissions error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Түүх татахад алдаа гарлаа'
+      });
+    }
+  });
+
 app.post('/reports/image',
   authenticateToken,
   upload.single('image'),
   async (req, res) => {
+    let submissionId = null;
+
     try {
       const { latitude, longitude, description } = req.body;
       const authHeader = req.headers['authorization'];
+      const userId = req.user?.userId;
 
       if (!req.file) {
         return res.status(400).json({ success: false, error: 'Image file is required' });
@@ -652,7 +700,18 @@ app.post('/reports/image',
 
       console.log(`📸 Processing image report in Report Service`);
 
-      // 1. Call Gemini Service
+      // 1. Save to image_submissions table FIRST (before AI analysis)
+      const imageUrl = req.file.path; // In production, upload to cloud storage
+      const insertResult = await pool.query(`
+        INSERT INTO image_submissions (user_id, latitude, longitude, description, image_url, status)
+        VALUES ($1, $2, $3, $4, $5, 'analyzing')
+        RETURNING id
+      `, [userId, latitude, longitude, description || '', imageUrl]);
+
+      submissionId = insertResult.rows[0].id;
+      console.log(`📝 Created image_submission #${submissionId}`);
+
+      // 2. Call Gemini Service for AI analysis
       const geminiServiceUrl = process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3010';
       console.log(`🔄 Calling Gemini Service at ${geminiServiceUrl}...`);
 
@@ -677,15 +736,43 @@ app.post('/reports/image',
 
       } catch (geminiErr) {
         console.error('❌ Gemini Service Error:', geminiErr.message);
+
+        // Update submission with error
+        await pool.query(`
+          UPDATE image_submissions
+          SET status = 'error', error_message = $1, analyzed_at = NOW()
+          WHERE id = $2
+        `, [geminiErr.message, submissionId]);
+
         if (geminiErr.response) {
           console.error('Gemini Service Response Data:', geminiErr.response.data);
         }
         throw new Error('AI шалгалт амжилтгүй боллоо: ' + (geminiErr.response?.data?.error || geminiErr.message));
       }
 
-      // 2. If Accident -> Forward to Accident Service
+      // 3. Update submission with AI results
+      await pool.query(`
+        UPDATE image_submissions
+        SET ai_analyzed = true,
+            is_accident = $1,
+            ai_confidence = $2,
+            ai_description = $3,
+            ai_type = $4,
+            analyzed_at = NOW(),
+            status = $5
+        WHERE id = $6
+      `, [
+        analysis.isAccident,
+        analysis.confidence,
+        analysis.description,
+        analysis.type,
+        analysis.isAccident ? 'accident_detected' : 'no_accident',
+        submissionId
+      ]);
+
+      // 4. If Accident -> Create accident in Accident Service
       if (analysis.isAccident) {
-        console.log('🚨 Accident detected! Forwarding to Accident Service...');
+        console.log('🚨 Accident detected! Creating accident...');
 
         const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
         const formData = new FormData();
@@ -698,11 +785,12 @@ app.post('/reports/image',
 
         formData.append('latitude', latitude);
         formData.append('longitude', longitude);
-        if (description) formData.append('description', description);
+        formData.append('description', analysis.description || description || '');
 
         // Pass analysis data to skip re-analysis
         formData.append('skipAnalysis', 'true');
         formData.append('analysisData', JSON.stringify(analysis));
+        formData.append('submissionId', submissionId.toString());
 
         const response = await axios.post(
           `${accidentServiceUrl}/accidents/report-image`,
@@ -716,22 +804,39 @@ app.post('/reports/image',
           }
         );
 
+        // Update submission with accident_id
+        if (response.data.success && response.data.data?.id) {
+          await pool.query(`
+            UPDATE image_submissions
+            SET accident_id = $1, status = 'accident_created'
+            WHERE id = $2
+          `, [response.data.data.id, submissionId]);
+        }
+
         // Cleanup temp file
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         res.status(response.status).json(response.data);
 
       } else {
-        // 3. Not Accident -> Return directly
-        console.log('✅ No accident detected. Returning result.');
+        // 5. Not Accident -> Return result (no accident created)
+        console.log('✅ No accident detected. Image saved to submissions.');
 
         // Cleanup temp file
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         res.json({
-          success: false,
-          message: 'Осол биш байна (AI)',
-          analysis: analysis
+          success: true, // Changed to true - submission was successful
+          message: 'Зураг шалгагдлаа. Осол илрээгүй.',
+          data: {
+            submissionId: submissionId,
+            isAccident: false,
+            analysis: {
+              confidence: analysis.confidence,
+              description: analysis.description,
+              type: analysis.type
+            }
+          }
         });
       }
 
@@ -750,6 +855,7 @@ app.post('/reports/image',
       res.status(500).json({
         success: false,
         error: 'Зураг илгээхэд алдаа гарлаа',
+        submissionId: submissionId,
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }

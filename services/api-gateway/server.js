@@ -6,8 +6,8 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-if (JWT_SECRET === 'your-secret-key' && process.env.NODE_ENV === 'production') {
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+if (JWT_SECRET === 'your-secret-key-change-in-production' && process.env.NODE_ENV === 'production') {
   console.error('❌ CRITICAL: JWT_SECRET not configured!');
   process.exit(1);
 }
@@ -27,7 +27,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 app.use(cors({
-  origin: '*', 
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -71,19 +71,19 @@ const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) {
-    return res.status(401).json({ 
+    return res.status(401).json({
       success: false,
-      error: 'Нэвтрэх шаардлагатай' 
+      error: 'Нэвтрэх шаардлагатай'
     });
   }
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      const message = err.name === 'TokenExpiredError' 
-        ? 'Токен хугацаа дууссан' 
+      const message = err.name === 'TokenExpiredError'
+        ? 'Токен хугацаа дууссан'
         : 'Хүчингүй токен';
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        error: message 
+        error: message
       });
     }
     req.user = user;
@@ -92,9 +92,9 @@ const authenticateToken = (req, res, next) => {
 };
 const requireAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== 'admin') {
-    return res.status(403).json({ 
+    return res.status(403).json({
       success: false,
-      error: 'Админ эрх шаардлагатай' 
+      error: 'Админ эрх шаардлагатай'
     });
   }
   next();
@@ -122,7 +122,7 @@ const createProxy = (target, options = {}) => {
     onError: (err, req, res) => {
       console.error(`❌ Proxy error for ${req.method} ${req.path}:`, err.message);
       if (!res.headersSent) {
-        res.status(503).json({ 
+        res.status(503).json({
           success: false,
           error: 'Service временно недоступен',
           details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -132,7 +132,7 @@ const createProxy = (target, options = {}) => {
   });
 };
 app.get('/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'healthy',
     service: 'api-gateway',
     timestamp: new Date().toISOString(),
@@ -162,7 +162,7 @@ app.post('/api/video/upload', uploadLimiter, authenticateToken, createProxy(SERV
 app.use('/api/videos', (req, res, next) => {
   const path = req.path || req.url;
   if (path.includes('/status') || path.includes('/retry-ai')) {
-    return next(); 
+    return next();
   }
   return uploadLimiter(req, res, () => {
     return authenticateToken(req, res, () => {
@@ -191,7 +191,7 @@ app.use('/api/cameras', generalLimiter, authenticateToken, requireAdmin, createP
   pathRewrite: { '^/api/cameras': '/cameras' }
 }));
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     success: false,
     error: 'Endpoint олдсонгүй',
     path: req.path,
@@ -202,8 +202,8 @@ app.use((err, req, res, next) => {
   console.error('❌ Gateway error:', err);
   res.status(err.status || 500).json({
     success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Серверийн алдаа гарлаа' 
+    error: process.env.NODE_ENV === 'production'
+      ? 'Серверийн алдаа гарлаа'
       : err.message,
     timestamp: new Date().toISOString()
   });
