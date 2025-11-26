@@ -11,10 +11,10 @@ const dotenv = require('dotenv');
 const rootEnvPath = path.resolve(__dirname, '../../.env');
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
-  console.log(`✅ Loaded .env from ${rootEnvPath}`);
+  console.log(` Loaded .env from ${rootEnvPath}`);
 } else {
   dotenv.config();
-  console.log('⚠️ Loaded .env from current directory (or defaults)');
+  console.log(' Loaded .env from current directory (or defaults)');
 }
 
 const app = express();
@@ -600,7 +600,7 @@ const authenticateToken = (req, res, next) => {
   }
   const jwt = require('jsonwebtoken');
   const JWT_SECRET = process.env.JWT_SECRET;
-  console.log('🔑 Report Service JWT Secret:', JWT_SECRET.substring(0, 5) + '...');
+  console.log(' Report Service JWT Secret:', JWT_SECRET.substring(0, 5) + '...');
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
@@ -675,9 +675,9 @@ app.post('/reports/image',
         return res.status(400).json({ success: false, error: 'latitude, longitude заавал байх ёстой' });
       }
 
-      console.log(`📸 Processing image report in Report Service`);
+      console.log(` Processing image report in Report Service`);
 
-      const imageUrl = req.file.path; 
+      const imageUrl = req.file.path;
       const insertResult = await pool.query(`
         INSERT INTO image_submissions (user_id, latitude, longitude, description, image_url, status)
         VALUES ($1, $2, $3, $4, $5, 'analyzing')
@@ -685,10 +685,10 @@ app.post('/reports/image',
       `, [userId, latitude, longitude, description || '', imageUrl]);
 
       submissionId = insertResult.rows[0].id;
-      console.log(`📝 Created image_submission #${submissionId}`);
+      console.log(` Created image_submission #${submissionId}`);
 
       const geminiServiceUrl = process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3010';
-      console.log(`🔄 Calling Gemini Service at ${geminiServiceUrl}...`);
+      console.log(` Calling Gemini Service at ${geminiServiceUrl}...`);
 
       let analysis;
       try {
@@ -707,10 +707,10 @@ app.post('/reports/image',
           throw new Error(geminiResponse.data.error || 'Gemini service failed');
         }
         analysis = geminiResponse.data;
-        console.log('🤖 Gemini Analysis Result:', analysis);
+        console.log(' Gemini Analysis Result:', analysis);
 
       } catch (geminiErr) {
-        console.error('❌ Gemini Service Error:', geminiErr.message);
+        console.error(' Gemini Service Error:', geminiErr.message);
 
         await pool.query(`
           UPDATE image_submissions
@@ -744,7 +744,7 @@ app.post('/reports/image',
       ]);
 
       if (analysis.isAccident) {
-        console.log('🚨 Accident detected! Creating accident...');
+        console.log(' Accident detected! Creating accident...');
 
         const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
         const formData = new FormData();
@@ -787,12 +787,12 @@ app.post('/reports/image',
         res.status(response.status).json(response.data);
 
       } else {
-        console.log('✅ No accident detected. Image saved to submissions.');
+        console.log(' No accident detected. Image saved to submissions.');
 
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         res.json({
-          success: true, 
+          success: true,
           message: 'Зураг шалгагдлаа. Осол илрээгүй.',
           data: {
             submissionId: submissionId,
@@ -859,7 +859,7 @@ process.on('SIGTERM', async () => {
 });
 
 app.listen(PORT, () => {
-  console.log(`📊 Report Service запущен на порту ${PORT}`);
+  console.log(` Report Service запущен на порту ${PORT}`);
 });
 
 module.exports = app;

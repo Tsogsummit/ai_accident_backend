@@ -1,18 +1,9 @@
--- Database: accident_db - FIXED VERSION with proper video-accident relationship
--- =====================================================
--- EXTENSIONS
--- =====================================================
-
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS cube;
 CREATE EXTENSION IF NOT EXISTS earthdistance;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- =====================================================
--- HELPER FUNCTIONS
--- =====================================================
 
--- Calculate distance between two lat/lng points in meters
 CREATE OR REPLACE FUNCTION calculate_distance(
     lat1 DECIMAL, lng1 DECIMAL,
     lat2 DECIMAL, lng2 DECIMAL
@@ -25,11 +16,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- =====================================================
--- TABLES
--- =====================================================
 
--- Users хүснэгт
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     phone VARCHAR(20) UNIQUE,
@@ -47,7 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
--- Admins хүснэгт
 CREATE TABLE IF NOT EXISTS admins (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
@@ -60,7 +46,6 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE INDEX IF NOT EXISTS idx_admins_username ON admins(username);
 CREATE INDEX IF NOT EXISTS idx_admins_user_id ON admins(user_id);
 
--- Cameras хүснэгт
 CREATE TABLE IF NOT EXISTS cameras (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -91,19 +76,16 @@ CREATE INDEX IF NOT EXISTS idx_cameras_location ON cameras USING GIST (
 CREATE INDEX IF NOT EXISTS idx_cameras_recording ON cameras(is_recording) WHERE is_recording = true;
 CREATE INDEX IF NOT EXISTS idx_cameras_last_frame ON cameras(last_frame_time DESC);
 
--- Accident types хүснэгт
 CREATE TABLE IF NOT EXISTS accident_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
     description TEXT
 );
-
--- ✅ FIXED: Accidents хүснэгт (video_id нь nullable байх ёстой)
 CREATE TABLE IF NOT EXISTS accidents (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
-    video_id INTEGER, -- ✅ Эхлээд NULL, дараа нь update хийнэ
+    video_id INTEGER, 
     accident_type_id INTEGER REFERENCES accident_types(id),
     latitude DECIMAL(10, 8) NOT NULL,
     longitude DECIMAL(11, 8) NOT NULL,
@@ -112,9 +94,9 @@ CREATE TABLE IF NOT EXISTS accidents (
     status VARCHAR(20) DEFAULT 'reported',
     source VARCHAR(20) DEFAULT 'user',
     verification_count INTEGER DEFAULT 0,
-    report_count INTEGER DEFAULT 1, -- ✅ NEW: Track multiple reports for same accident
-    resolved_at TIMESTAMP, -- ✅ NEW: When accident was resolved/cleared
-    confirmed_at TIMESTAMP, -- ✅ NEW: When accident was confirmed by AI
+    report_count INTEGER DEFAULT 1,
+    resolved_at TIMESTAMP, 
+    confirmed_at TIMESTAMP,
     accident_time TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -128,12 +110,11 @@ CREATE INDEX IF NOT EXISTS idx_accidents_active ON accidents(accident_time DESC)
     WHERE status NOT IN ('resolved', 'false_alarm');
 CREATE INDEX IF NOT EXISTS idx_accidents_video ON accidents(video_id);
 
--- ✅ FIXED: Videos хүснэгт (accident_id нэмэгдлээ)
 CREATE TABLE IF NOT EXISTS videos (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
-    accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE, -- ✅ ШИНЭ
+    accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE,
     file_name VARCHAR(255) NOT NULL,
     file_path TEXT NOT NULL,
     file_size BIGINT,
@@ -148,15 +129,13 @@ CREATE TABLE IF NOT EXISTS videos (
 
 CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_id);
 CREATE INDEX IF NOT EXISTS idx_videos_camera ON videos(camera_id);
-CREATE INDEX IF NOT EXISTS idx_videos_accident ON videos(accident_id); -- ✅ ШИНЭ
+CREATE INDEX IF NOT EXISTS idx_videos_accident ON videos(accident_id); 
 CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 
--- ✅ Add foreign key constraint for accidents.video_id (after videos table is created)
 ALTER TABLE accidents
 ADD CONSTRAINT fk_accidents_video
 FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE SET NULL;
 
--- ✅ NEW: Track individual reports for deduplication (after videos table exists)
 CREATE TABLE IF NOT EXISTS accident_reports (
     id SERIAL PRIMARY KEY,
     accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE,
@@ -172,7 +151,6 @@ CREATE TABLE IF NOT EXISTS accident_reports (
 CREATE INDEX IF NOT EXISTS idx_accident_reports_accident ON accident_reports(accident_id);
 CREATE INDEX IF NOT EXISTS idx_accident_reports_user ON accident_reports(user_id);
 
--- Locations хүснэгт
 CREATE TABLE IF NOT EXISTS locations (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
@@ -186,7 +164,6 @@ CREATE INDEX IF NOT EXISTS idx_locations_coords ON locations USING GIST (
 );
 CREATE INDEX IF NOT EXISTS idx_locations_user_time ON locations(user_id, timestamp DESC);
 
--- AI Detections хүснэгт
 CREATE TABLE IF NOT EXISTS ai_detections (
     id SERIAL PRIMARY KEY,
     video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE,
@@ -199,14 +176,12 @@ CREATE TABLE IF NOT EXISTS ai_detections (
 CREATE INDEX IF NOT EXISTS idx_ai_detections_video ON ai_detections(video_id);
 CREATE INDEX IF NOT EXISTS idx_ai_detections_confidence ON ai_detections(confidence DESC);
 
--- Report reasons хүснэгт
 CREATE TABLE IF NOT EXISTS report_reasons (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT
 );
 
--- False reports хүснэгт
 CREATE TABLE IF NOT EXISTS false_reports (
     id SERIAL PRIMARY KEY,
     accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE,
@@ -214,15 +189,12 @@ CREATE TABLE IF NOT EXISTS false_reports (
     reason_id INTEGER REFERENCES report_reasons(id),
     comment TEXT,
     reported_at TIMESTAMP DEFAULT NOW(),
-    -- ✅ UNIQUE constraint: one user can only report one accident once
     CONSTRAINT unique_user_accident_report UNIQUE (user_id, accident_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_false_reports_accident ON false_reports(accident_id);
 CREATE INDEX IF NOT EXISTS idx_false_reports_user ON false_reports(user_id);
 
--- ✅ NEW: Image submissions table (for pending AI analysis)
--- This stores all user image uploads before AI confirms if it's an accident
 CREATE TABLE IF NOT EXISTS image_submissions (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -231,17 +203,14 @@ CREATE TABLE IF NOT EXISTS image_submissions (
     description TEXT,
     image_url TEXT,
 
-    -- AI Analysis results
     ai_analyzed BOOLEAN DEFAULT false,
     is_accident BOOLEAN DEFAULT NULL,
     ai_confidence DECIMAL(5, 4),
     ai_description TEXT,
     ai_type VARCHAR(50),
 
-    -- If accident confirmed, link to created accident
     accident_id INTEGER REFERENCES accidents(id) ON DELETE SET NULL,
 
-    -- Status: pending, analyzing, accident_created, no_accident, error
     status VARCHAR(30) DEFAULT 'pending',
     error_message TEXT,
 
@@ -256,21 +225,15 @@ CREATE INDEX IF NOT EXISTS idx_image_submissions_coords ON image_submissions USI
     ll_to_earth(latitude, longitude)
 );
 
--- =====================================================
--- MIGRATION: Ensure UNIQUE constraint exists
--- For existing databases that may have duplicate reports
--- =====================================================
 
 DO $$
 BEGIN
-    -- Check if constraint already exists
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'unique_user_accident_report'
     ) THEN
-        RAISE NOTICE '⚠️ UNIQUE constraint not found. Cleaning up duplicates...';
+        RAISE NOTICE ' UNIQUE constraint not found. Cleaning up duplicates...';
 
-        -- Remove duplicate reports (keep the oldest one per user-accident pair)
         DELETE FROM false_reports
         WHERE id NOT IN (
             SELECT MIN(id)
@@ -278,19 +241,17 @@ BEGIN
             GROUP BY user_id, accident_id
         );
 
-        -- Add UNIQUE constraint
         ALTER TABLE false_reports
         ADD CONSTRAINT unique_user_accident_report
         UNIQUE (user_id, accident_id);
 
-        RAISE NOTICE '✅ UNIQUE constraint added successfully!';
-        RAISE NOTICE '✅ One user can now only report one accident once.';
+        RAISE NOTICE ' UNIQUE constraint added successfully!';
+        RAISE NOTICE ' One user can now only report one accident once.';
     ELSE
-        RAISE NOTICE '✅ UNIQUE constraint already exists.';
+        RAISE NOTICE ' UNIQUE constraint already exists.';
     END IF;
 END $$;
 
--- Notifications хүснэгт
 CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -306,7 +267,6 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read);
 CREATE INDEX IF NOT EXISTS idx_notifications_sent ON notifications(sent_at DESC);
 
--- Notification settings хүснэгт
 CREATE TABLE IF NOT EXISTS notification_settings (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
@@ -316,7 +276,6 @@ CREATE TABLE IF NOT EXISTS notification_settings (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Map markers хүснэгт
 CREATE TABLE IF NOT EXISTS map_markers (
     id SERIAL PRIMARY KEY,
     accident_id INTEGER REFERENCES accidents(id) ON DELETE CASCADE UNIQUE,
@@ -331,7 +290,6 @@ CREATE INDEX IF NOT EXISTS idx_map_markers_coords ON map_markers USING GIST (
     ll_to_earth(latitude, longitude)
 );
 
--- Camera logs хүснэгт
 CREATE TABLE IF NOT EXISTS camera_logs (
     id SERIAL PRIMARY KEY,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
@@ -343,7 +301,6 @@ CREATE TABLE IF NOT EXISTS camera_logs (
 CREATE INDEX IF NOT EXISTS idx_camera_logs_camera ON camera_logs(camera_id);
 CREATE INDEX IF NOT EXISTS idx_camera_logs_timestamp ON camera_logs(timestamp DESC);
 
--- Camera frames хүснэгт
 CREATE TABLE IF NOT EXISTS camera_frames (
     id SERIAL PRIMARY KEY,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
@@ -361,7 +318,6 @@ CREATE INDEX IF NOT EXISTS idx_camera_frames_camera ON camera_frames(camera_id);
 CREATE INDEX IF NOT EXISTS idx_camera_frames_processed ON camera_frames(processed) WHERE processed = false;
 CREATE INDEX IF NOT EXISTS idx_camera_frames_timestamp ON camera_frames(timestamp DESC);
 
--- Camera detections хүснэгт
 CREATE TABLE IF NOT EXISTS camera_detections (
     id SERIAL PRIMARY KEY,
     camera_id INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
@@ -384,11 +340,6 @@ CREATE INDEX IF NOT EXISTS idx_camera_detections_class ON camera_detections(obje
 CREATE INDEX IF NOT EXISTS idx_camera_detections_potential ON camera_detections(potential_accident) 
     WHERE potential_accident = true;
 
--- =====================================================
--- FUNCTIONS
--- =====================================================
-
--- Note: calculate_distance function is defined at the top of this file using earthdistance extension
 
 CREATE OR REPLACE FUNCTION get_nearby_accidents(
     user_lat DECIMAL,
@@ -420,10 +371,6 @@ BEGIN
     ORDER BY distance_meters ASC;
 END;
 $$ LANGUAGE plpgsql;
-
--- =====================================================
--- TRIGGERS
--- =====================================================
 
 CREATE OR REPLACE FUNCTION create_map_marker()
 RETURNS TRIGGER AS $$
@@ -492,9 +439,6 @@ AFTER INSERT ON camera_frames
 FOR EACH ROW
 EXECUTE FUNCTION update_camera_last_frame();
 
--- =====================================================
--- VIEWS
--- =====================================================
 
 CREATE OR REPLACE VIEW active_accidents AS
 SELECT 
@@ -568,11 +512,6 @@ LEFT JOIN camera_detections cd ON c.id = cd.camera_id AND cd.detection_time >= N
 LEFT JOIN accidents a ON c.id = a.camera_id AND a.accident_time >= NOW() - INTERVAL '1 hour'
 GROUP BY c.id, c.name, c.location, c.is_online, c.is_recording, c.last_frame_time, c.frames_captured;
 
--- =====================================================
--- INITIAL DATA
--- =====================================================
-
--- Accident types
 INSERT INTO accident_types (name, description) VALUES
 ('Мөргөлдөөн', 'Хоёр ба түүнээс дээш тээврийн хэрэгслийн мөргөлдөөн'),
 ('Эвдрэл', 'Нэг тээврийн хэрэгслийн эвдрэл'),
@@ -580,7 +519,6 @@ INSERT INTO accident_types (name, description) VALUES
 ('Зам хаагдсан', 'Эвдрэл, осол зам хаасан')
 ON CONFLICT DO NOTHING;
 
--- Report reasons
 INSERT INTO report_reasons (name, description) VALUES
 ('Шийдэгдсэн', 'Осол аль хэдийн шийдэгдсэн байна'),
 ('Байршил буруу', 'Байршил буруу тэмдэглэгдсэн'),
@@ -589,9 +527,6 @@ INSERT INTO report_reasons (name, description) VALUES
 ('Давхардсан', 'Өмнө нь мэдээлсэн осол')
 ON CONFLICT DO NOTHING;
 
--- =====================================================
--- DEFAULT ADMIN USER
--- =====================================================
 
 DO $$
 DECLARE
@@ -629,16 +564,13 @@ BEGIN
     ON CONFLICT (username) DO UPDATE
     SET user_id = EXCLUDED.user_id;
     
-    RAISE NOTICE '✅ Admin user created successfully!';
+    RAISE NOTICE ' Admin user created successfully!';
     RAISE NOTICE '   Username: admin';
     RAISE NOTICE '   Password: admin123';
     RAISE NOTICE '   Phone: +97699999999';
 
 END $$;
 
--- =====================================================
--- 50 TEST USERS
--- =====================================================
 
 DO $$
 DECLARE
@@ -675,22 +607,18 @@ BEGIN
         ON CONFLICT (phone) DO NOTHING;
     END LOOP;
 
-    RAISE NOTICE '✅ 50 test users created successfully!';
+    RAISE NOTICE ' 50 test users created successfully!';
     RAISE NOTICE '   Phone format: +976990000XX (01-50)';
     RAISE NOTICE '   Email format: testXX@accident.mn';
     RAISE NOTICE '   Password: test123';
 
 END $$;
 
--- Sample cameras
 INSERT INTO cameras (name, location, latitude, longitude, stream_url, is_online, resolution, fps, description) VALUES
 ('Энхтайваны өргөн чөлөө - Камер 1', 'Энхтайваны өргөн чөлөө, Чингэлтэй', 47.9184, 106.9177, 'rtsp://camera1.example.com/stream', false, '720p', 25, 'Test камер'),
 ('UB Traffic - Камер 32770', 'Улаанбаатар хот', 47.9184, 106.9057, 'https://stream.ubtraffic.mn/live/32770.stream_480p/playlist.m3u8', true, '480p', 25, 'UB Traffic system камер')
 ON CONFLICT DO NOTHING;
 
--- =====================================================
--- COMMENTS
--- =====================================================
 
 COMMENT ON TABLE users IS 'Хэрэглэгчийн үндсэн мэдээлэл';
 COMMENT ON TABLE admins IS 'Админ хэрэглэгчид';
@@ -700,17 +628,14 @@ COMMENT ON TABLE cameras IS 'Авто замын камерууд';
 COMMENT ON COLUMN videos.accident_id IS 'Холбогдох ослын ID';
 COMMENT ON COLUMN accidents.video_id IS 'Холбогдох бичлэгийн ID';
 
--- =====================================================
--- COMPLETION MESSAGE
--- =====================================================
 
 DO $$
 BEGIN
     RAISE NOTICE '';
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
-    RAISE NOTICE '✅ Database initialization completed successfully!';
+    RAISE NOTICE ' Database initialization completed successfully!';
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
-    RAISE NOTICE '📊 Video-Accident relationship: FIXED';
-    RAISE NOTICE '🔗 Foreign keys: accidents.video_id ↔ videos.accident_id';
+    RAISE NOTICE ' Video-Accident relationship: FIXED';
+    RAISE NOTICE ' Foreign keys: accidents.video_id ↔ videos.accident_id';
     RAISE NOTICE '═══════════════════════════════════════════════════════════';
 END $$;

@@ -20,7 +20,7 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 app.get('/maps/markers', async (req, res) => {
   try {
     const {
-      bounds,  
+      bounds,
       status,
       limit = 100
     } = req.query;
@@ -117,8 +117,8 @@ app.get('/maps/geocode', async (req, res) => {
       });
     }
     if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
+      return res.status(500).json({
+        error: 'Google Maps API key тохируулаагүй байна'
       });
     }
     const response = await axios.get(
@@ -165,8 +165,8 @@ app.get('/maps/reverse-geocode', async (req, res) => {
       });
     }
     if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
+      return res.status(500).json({
+        error: 'Google Maps API key тохируулаагүй байна'
       });
     }
     const response = await axios.get(
@@ -203,13 +203,13 @@ app.get('/maps/directions', async (req, res) => {
   try {
     const { originLat, originLng, destLat, destLng, mode = 'driving' } = req.query;
     if (!originLat || !originLng || !destLat || !destLng) {
-      return res.status(400).json({ 
-        error: 'Origin болон destination coordinates шаардлагатай' 
+      return res.status(400).json({
+        error: 'Origin болон destination coordinates шаардлагатай'
       });
     }
     if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
+      return res.status(500).json({
+        error: 'Google Maps API key тохируулаагүй байна'
       });
     }
     const response = await axios.get(
@@ -254,8 +254,8 @@ app.get('/maps/nearby-places', async (req, res) => {
       return res.status(400).json({ error: 'lat болон lng шаардлагатай' });
     }
     if (!GOOGLE_MAPS_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Google Maps API key тохируулаагүй байна' 
+      return res.status(500).json({
+        error: 'Google Maps API key тохируулаагүй байна'
       });
     }
     const response = await axios.get(
@@ -353,7 +353,7 @@ app.get('/health', (req, res) => {
   });
 });
 app.listen(PORT, () => {
-  console.log(`🗺️  Map Service запущен на порту ${PORT}`);
-  console.log(`📍 Google Maps API: ${GOOGLE_MAPS_API_KEY ? 'настроен' : 'не настроен'}`);
+  console.log(`  Map Service запущен на порту ${PORT}`);
+  console.log(`  Google Maps API: ${GOOGLE_MAPS_API_KEY ? 'настроен' : 'не настроен'}`);
 });
 module.exports = app;

@@ -365,11 +365,11 @@ app.use(middleware.errorHandler);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   utils.logInfo('═══════════════════════════════════════════════════════════');
-  utils.logInfo(`👤 User Service running on port ${PORT}`);
+  utils.logInfo(` User Service running on port ${PORT}`);
   utils.logInfo('═══════════════════════════════════════════════════════════');
-  utils.logInfo(`📊 Database: ${config.database.host}:${config.database.port}`);
-  utils.logInfo(`💾 Redis: ${config.redis.host}:${config.redis.port}`);
-  utils.logInfo(`🔐 Environment: ${config.env}`);
+  utils.logInfo(` Database: ${config.database.host}:${config.database.port}`);
+  utils.logInfo(` Redis: ${config.redis.host}:${config.redis.port}`);
+  utils.logInfo(` Environment: ${config.env}`);
   utils.logInfo('═══════════════════════════════════════════════════════════\n');
 });
 

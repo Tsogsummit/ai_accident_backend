@@ -80,7 +80,7 @@ pool.on('error', (err) => {
 });
 
 pool.on('connect', () => {
-  console.log('✅ PostgreSQL connected');
+  console.log(' PostgreSQL connected');
 });
 
 const redis = new Redis({
@@ -105,7 +105,7 @@ redis.on('error', (err) => {
 });
 
 redis.on('connect', () => {
-  console.log('✅ Redis connected');
+  console.log(' Redis connected');
 });
 
 const authenticateToken = (req, res, next) => {
@@ -117,7 +117,7 @@ const authenticateToken = (req, res, next) => {
       error: 'Нэвтрэх шаардлагатай'
     });
   }
-  jwt.verify(token, process.env.JWT_SECRET , (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
       console.error('Token verification failed:', err.message);
       console.log('Token:', token);
@@ -230,11 +230,11 @@ app.get('/accidents',
       const params = [currentUserId];
       let paramIndex = 2;
       if (userOnly === 'true' || userOnly === true) {
-        console.log('  ✅ APPLYING userOnly filter - user_id =', currentUserId);
+        console.log('   APPLYING userOnly filter - user_id =', currentUserId);
         queryText += ` AND a.user_id = $${paramIndex++}`;
         params.push(currentUserId);
       } else {
-        console.log('  ❌ NOT applying userOnly filter');
+        console.log('   NOT applying userOnly filter');
       }
       if (status) {
         queryText += ` AND a.status = $${paramIndex++}`;
@@ -246,7 +246,7 @@ app.get('/accidents',
         queryText += ` AND a.resolved_at IS NULL`;
         queryText += ` AND (a.confirmed_at IS NULL OR a.confirmed_at > NOW() - INTERVAL '4 hours')`;
         queryText += ` AND a.accident_time > NOW() - INTERVAL '4 hours'`;
-        console.log('  ✅ APPLYING activeOnly filter for map view');
+        console.log('   APPLYING activeOnly filter for map view');
       }
 
       queryText += `
@@ -341,7 +341,7 @@ app.post('/accidents',
       const DUPLICATE_RADIUS_METERS = 200;
       const DUPLICATE_TIME_MINUTES = 60;
 
-      console.log(`🔍 Checking for duplicates at ${latitude}, ${longitude} within ${DUPLICATE_RADIUS_METERS}m and ${DUPLICATE_TIME_MINUTES} min`);
+      console.log(` Checking for duplicates at ${latitude}, ${longitude} within ${DUPLICATE_RADIUS_METERS}m and ${DUPLICATE_TIME_MINUTES} min`);
 
       let existingAccident = null;
       try {
@@ -354,11 +354,11 @@ app.post('/accidents',
           LIMIT 100
         `);
 
-        console.log(`🔍 Found ${recentAccidents.rows.length} recent accidents to check`);
+        console.log(` Found ${recentAccidents.rows.length} recent accidents to check`);
 
         for (const accident of recentAccidents.rows) {
           if (videoId && accident.video_id && String(accident.video_id) === String(videoId)) {
-            console.log(`🔍 Found duplicate by videoId! Accident #${accident.id}`);
+            console.log(` Found duplicate by videoId! Accident #${accident.id}`);
             existingAccident = { ...accident, matchType: 'video' };
             break;
           }
@@ -372,17 +372,17 @@ app.post('/accidents',
           );
 
           if (distance < DUPLICATE_RADIUS_METERS) {
-            console.log(`🔍 Found duplicate by distance! Accident #${accident.id} at ${distance.toFixed(2)}m`);
+            console.log(` Found duplicate by distance! Accident #${accident.id} at ${distance.toFixed(2)}m`);
             existingAccident = { ...accident, distance, matchType: 'distance' };
             break;
           }
         }
 
         if (!existingAccident) {
-          console.log(`🔍 No duplicates found within ${DUPLICATE_RADIUS_METERS}m`);
+          console.log(` No duplicates found within ${DUPLICATE_RADIUS_METERS}m`);
         }
       } catch (dedupError) {
-        console.error(`❌ Deduplication check FAILED: ${dedupError.message}`);
+        console.error(` Deduplication check FAILED: ${dedupError.message}`);
         existingAccident = null;
       }
 
@@ -418,7 +418,7 @@ app.post('/accidents',
             VALUES ($1, $2, $3, $4, $5, $6)
             `, [existingAccident.id, userId, videoId, latitude, longitude, description]);
         } else {
-          console.log(`ℹ️ User ${userId} already reported accident #${existingAccident.id}.Skipping report insertion.`);
+          console.log(`ℹ User ${userId} already reported accident #${existingAccident.id}.Skipping report insertion.`);
           if (description) {
             await client.query(`
               UPDATE accident_reports
@@ -435,7 +435,7 @@ app.post('/accidents',
             `, [existingAccident.id, videoId]);
         }
 
-        console.log(`✅ Added report to existing accident #${existingAccident.id}(now ${accident.report_count} reports)`);
+        console.log(` Added report to existing accident #${existingAccident.id}(now ${accident.report_count} reports)`);
       } else {
         const accidentResult = await client.query(`
           INSERT INTO accidents(
@@ -503,7 +503,7 @@ app.post('/accidents/report-image',
       const { latitude, longitude, description, analysisData } = req.body;
       const userId = req.user.userId;
 
-      console.log(`📸 Received image report from Report Service for user ${userId}`);
+      console.log(` Received image report from Report Service for user ${userId}`);
 
       if (!req.file) {
         return res.status(400).json({ success: false, error: 'Image file is required' });
@@ -567,7 +567,7 @@ app.post('/accidents/report-image',
 
       if (nearbyCheck.rows.length > 0) {
         const existingAccident = nearbyCheck.rows[0];
-        console.log(`🔄 Found existing accident ${existingAccident.id} within 100m - merging reports`);
+        console.log(` Found existing accident ${existingAccident.id} within 100m - merging reports`);
 
         const updateResult = await client.query(`
           UPDATE accidents
@@ -580,7 +580,7 @@ app.post('/accidents/report-image',
         accident = updateResult.rows[0];
         isNewAccident = false;
       } else {
-        console.log(`✨ No nearby accident found - creating new accident`);
+        console.log(` No nearby accident found - creating new accident`);
 
         const accidentResult = await client.query(`
           INSERT INTO accidents(
@@ -623,12 +623,12 @@ app.post('/accidents/report-image',
       }
 
       if (isNewAccident) {
-        console.log(`📢 Notifying nearby users about new accident ${accident.id}`);
+        console.log(` Notifying nearby users about new accident ${accident.id}`);
         notifyNearbyUsers(accident, 5000).catch(err =>
           console.error('Notification error:', err)
         );
       } else {
-        console.log(`🔕 Skipping notification - duplicate report for existing accident ${accident.id}`);
+        console.log(` Skipping notification - duplicate report for existing accident ${accident.id}`);
       }
 
       res.status(201).json({
@@ -800,7 +800,7 @@ app.post('/accidents/:id/resolve',
         resolvedAt: new Date().toISOString()
       });
 
-      console.log(`✅ Accident #${id} resolved by user ${userId} `);
+      console.log(` Accident #${id} resolved by user ${userId} `);
 
       res.json({
         success: true,
@@ -872,9 +872,9 @@ async function notifyNearbyUsers(accident, radiusMeters) {
           },
           { timeout: 10000 }
         );
-        console.log(`✅ Push notifications sent via notification service`);
+        console.log(` Push notifications sent via notification service`);
       } catch (notifyErr) {
-        console.error('⚠️ Failed to send push notifications:', notifyErr.message);
+        console.error(' Failed to send push notifications:', notifyErr.message);
       }
     }
     console.log(`Notifications sent to ${nearbyUsers.length} users`);
@@ -1071,7 +1071,7 @@ process.on('SIGINT', async () => {
 
 cron.schedule('*/10 * * * *', async () => {
   try {
-    console.log('🕐 Running auto-resolution check...');
+    console.log(' Running auto-resolution check...');
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const result = await pool.query(`
       UPDATE accidents
@@ -1088,7 +1088,7 @@ cron.schedule('*/10 * * * *', async () => {
       RETURNING id, accident_time, status
             `, [oneHourAgo]);
     if (result.rowCount > 0) {
-      console.log(`✅ Auto - resolved ${result.rowCount} accident(s) older than 1 hour`);
+      console.log(` Auto - resolved ${result.rowCount} accident(s) older than 1 hour`);
       result.rows.forEach(acc => {
         console.log(`   - Accident #${acc.id}(time: ${acc.accident_time})`);
       });
@@ -1104,11 +1104,11 @@ cron.schedule('*/10 * * * *', async () => {
       console.log('   No accidents to auto-resolve');
     }
   } catch (error) {
-    console.error('❌ Auto-resolution error:', error.message);
+    console.error(' Auto-resolution error:', error.message);
   }
 });
 
-console.log('✅ Auto-resolution scheduler started (every 10 minutes)');
+console.log(' Auto-resolution scheduler started (every 10 minutes)');
 
 server.listen(PORT, () => {
   console.log(`Accident Service running on port ${PORT} `);

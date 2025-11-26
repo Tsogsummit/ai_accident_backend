@@ -10,9 +10,9 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { 
+  cors: {
     origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-    credentials: true 
+    credentials: true
   }
 });
 const PORT = process.env.PORT || 3005;
@@ -57,15 +57,15 @@ try {
       databaseURL: process.env.FIREBASE_DATABASE_URL
     });
     firebaseInitialized = true;
-    console.log('✅ Firebase Admin SDK initialized successfully');
+    console.log(' Firebase Admin SDK initialized successfully');
   } else {
-    console.warn('⚠️  Firebase credentials file not found - Push notifications disabled');
+    console.warn('  Firebase credentials file not found - Push notifications disabled');
   }
 } catch (error) {
-  console.error('❌ Firebase initialization error:', error.message);
-  console.warn('⚠️  Push notifications will not work');
+  console.error(' Firebase initialization error:', error.message);
+  console.warn('  Push notifications will not work');
 }
-const userSockets = new Map(); 
+const userSockets = new Map();
 io.on('connection', (socket) => {
   console.log('Client холбогдсон:', socket.id);
   socket.on('register', (userId) => {
@@ -91,9 +91,9 @@ app.get('/notifications', async (req, res) => {
   try {
     const { userId, page = 1, limit = 20, unreadOnly } = req.query;
     if (!userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'userId шаардлагатай' 
+        error: 'userId шаардлагатай'
       });
     }
     const offset = (page - 1) * limit;
@@ -124,9 +124,9 @@ app.get('/notifications', async (req, res) => {
     });
   } catch (error) {
     console.error('Get notifications error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Мэдэгдэл авахад алдаа гарлаа' 
+      error: 'Мэдэгдэл авахад алдаа гарлаа'
     });
   }
 });
@@ -144,9 +144,9 @@ app.put('/notifications/:id/read', async (req, res) => {
       [id]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Мэдэгдэл олдсонгүй' 
+        error: 'Мэдэгдэл олдсонгүй'
       });
     }
     res.json({
@@ -156,9 +156,9 @@ app.put('/notifications/:id/read', async (req, res) => {
     });
   } catch (error) {
     console.error('Mark as read error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Алдаа гарлаа' 
+      error: 'Алдаа гарлаа'
     });
   }
 });
@@ -166,24 +166,24 @@ app.put('/notifications/read-all', async (req, res) => {
   try {
     const { userId } = req.body;
     if (!userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'userId шаардлагатай' 
+        error: 'userId шаардлагатай'
       });
     }
     await pool.query(
       'UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false',
       [userId]
     );
-    res.json({ 
+    res.json({
       success: true,
-      message: 'Бүх мэдэгдэл уншигдлаа' 
+      message: 'Бүх мэдэгдэл уншигдлаа'
     });
   } catch (error) {
     console.error('Mark all as read error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Алдаа гарлаа' 
+      error: 'Алдаа гарлаа'
     });
   }
 });
@@ -202,27 +202,27 @@ app.delete('/notifications/:id', async (req, res) => {
       [id, userId]
     );
     if (result.rowCount === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Мэдэгдэл олдсонгүй' 
+        error: 'Мэдэгдэл олдсонгүй'
       });
     }
-    res.json({ 
+    res.json({
       success: true,
-      message: 'Мэдэгдэл устгагдлаа' 
+      message: 'Мэдэгдэл устгагдлаа'
     });
   } catch (error) {
     console.error('Delete notification error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Алдаа гарлаа' 
+      error: 'Алдаа гарлаа'
     });
   }
 });
 app.post('/notifications/send', async (req, res) => {
   try {
     const {
-      userIds,  
+      userIds,
       accidentId,
       type,
       title,
@@ -230,9 +230,9 @@ app.post('/notifications/send', async (req, res) => {
       data = {}
     } = req.body;
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'userIds array шаардлагатай' 
+        error: 'userIds array шаардлагатай'
       });
     }
     if (!title || !message) {
@@ -305,7 +305,7 @@ app.post('/notifications/send', async (req, res) => {
               if (!resp.success) {
                 const error = resp.error;
                 if (error.code === 'messaging/invalid-registration-token' ||
-                    error.code === 'messaging/registration-token-not-registered') {
+                  error.code === 'messaging/registration-token-not-registered') {
                   const userId = fcmTokens[idx]?.userId;
                   if (userId) {
                     redis.del(`fcm_token:${userId}`).catch(console.error);
@@ -315,7 +315,7 @@ app.post('/notifications/send', async (req, res) => {
             });
           }
         }
-        console.log(`📱 FCM: ${fcmSuccess} success, ${fcmFailure} failed`);
+        console.log(` FCM: ${fcmSuccess} success, ${fcmFailure} failed`);
       } catch (fcmError) {
         console.error('FCM error:', fcmError);
       }
@@ -334,7 +334,7 @@ app.post('/notifications/send', async (req, res) => {
     });
   } catch (error) {
     console.error('Send notification error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Мэдэгдэл илгээхэд алдаа гарлаа',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -345,9 +345,9 @@ app.post('/notifications/register-token', async (req, res) => {
   try {
     const { userId, fcmToken } = req.body;
     if (!userId || !fcmToken) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'userId болон fcmToken шаардлагатай' 
+        error: 'userId болон fcmToken шаардлагатай'
       });
     }
     if (typeof fcmToken !== 'string' || fcmToken.length < 20) {
@@ -357,15 +357,15 @@ app.post('/notifications/register-token', async (req, res) => {
       });
     }
     await redis.setex(`fcm_token:${userId}`, 30 * 24 * 60 * 60, fcmToken);
-    res.json({ 
+    res.json({
       success: true,
-      message: 'FCM токен бүртгэгдлээ' 
+      message: 'FCM токен бүртгэгдлээ'
     });
   } catch (error) {
     console.error('Register token error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Алдаа гарлаа' 
+      error: 'Алдаа гарлаа'
     });
   }
 });
@@ -415,9 +415,9 @@ app.get('/notifications/settings/:userId', async (req, res) => {
     });
   } catch (error) {
     console.error('Get settings error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Тохиргоо авахад алдаа гарлаа' 
+      error: 'Тохиргоо авахад алдаа гарлаа'
     });
   }
 });
@@ -434,15 +434,15 @@ app.put('/notifications/settings/:userId', async (req, res) => {
       WHERE user_id = $4
       RETURNING *
     `, [
-      pushEnabled, 
-      radius, 
-      accidentTypes ? JSON.stringify(accidentTypes) : null, 
+      pushEnabled,
+      radius,
+      accidentTypes ? JSON.stringify(accidentTypes) : null,
       userId
     ]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Тохиргоо олдсонгүй' 
+        error: 'Тохиргоо олдсонгүй'
       });
     }
     res.json({
@@ -452,9 +452,9 @@ app.put('/notifications/settings/:userId', async (req, res) => {
     });
   } catch (error) {
     console.error('Update settings error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Алдаа гарлаа' 
+      error: 'Алдаа гарлаа'
     });
   }
 });
@@ -494,9 +494,9 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 server.listen(PORT, () => {
-  console.log(`🔔 Notification Service запущен на порту ${PORT}`);
-  console.log(`🔌 Socket.IO готов для WebSocket соединений`);
-  console.log(`📱 Firebase: ${firebaseInitialized ? 'готов' : 'не настроен'}`);
-  console.log(`👥 Active connections: ${userSockets.size}`);
+  console.log(` Notification Service запущен на порту ${PORT}`);
+  console.log(` Socket.IO готов для WebSocket соединений`);
+  console.log(` Firebase: ${firebaseInitialized ? 'готов' : 'не настроен'}`);
+  console.log(` Active connections: ${userSockets.size}`);
 });
 module.exports = app;

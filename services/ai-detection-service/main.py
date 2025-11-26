@@ -433,7 +433,7 @@ class OptimizedVehicleTracker:
             (indicator_counts.get('people_at_scene', 0) > 5 and final_confidence > 0.40)
         )
 
-        logger.info(f"📈 Accident analysis: confidence={final_confidence:.2f}, frame_ratio={accident_frame_ratio:.2f}, collisions={indicator_counts.get('collision', 0)}, erratic={indicator_counts.get('erratic_trajectory', 0)}, clustering={indicator_counts.get('vehicle_clustering', 0)}")
+        logger.info(f" Accident analysis: confidence={final_confidence:.2f}, frame_ratio={accident_frame_ratio:.2f}, collisions={indicator_counts.get('collision', 0)}, erratic={indicator_counts.get('erratic_trajectory', 0)}, clustering={indicator_counts.get('vehicle_clustering', 0)}")
         return {
             'has_accident': has_accident,
             'confidence': final_confidence,
@@ -492,10 +492,10 @@ config = Config()
 try:
     logger.info(f"Loading YOLOv8m model: {config.MODEL_PATH}")
     model = YOLO(config.MODEL_PATH)
-    logger.info("✅ YOLOv8m model loaded successfully (higher accuracy)")
+    logger.info(" YOLOv8m model loaded successfully (higher accuracy)")
 except Exception as e:
     logger.error(f"Failed to load YOLOv8m: {e}")
-    logger.info("⚠️ Fallback to YOLOv8n")
+    logger.info(" Fallback to YOLOv8n")
     model = YOLO('yolov8n.pt')
 
 def extract_frames(video_path: str, interval: float = 0.5, max_frames: int = 500):
@@ -516,7 +516,7 @@ def extract_frames(video_path: str, interval: float = 0.5, max_frames: int = 500
             extracted += 1
         frame_count += 1
     cap.release()
-    logger.info(f"✂️ Extracted {len(frames)} frames (interval: {interval}s)")
+    logger.info(f" Extracted {len(frames)} frames (interval: {interval}s)")
     return frames
 
 def detect_motion(frames, threshold=5.0):
@@ -542,7 +542,7 @@ def detect_motion(frames, threshold=5.0):
 def detect_accident(frames, confidence_threshold=0.30):
     # First, detect if video has motion
     has_motion, motion_score = detect_motion(frames)
-    logger.info(f"🎬 Motion detection: has_motion={has_motion}, score={motion_score:.2f}")
+    logger.info(f" Motion detection: has_motion={has_motion}, score={motion_score:.2f}")
 
     # Initialize YOLO tracker for vehicle detection (Used for BOTH static and dynamic now)
     tracker = OptimizedVehicleTracker(
@@ -581,7 +581,7 @@ def detect_accident(frames, confidence_threshold=0.30):
             vehicle_detections += len(vehicles)
 
             if frame_idx == 0:
-                logger.info(f"🔍 Frame 0 detections: {class_names}")
+                logger.info(f" Frame 0 detections: {class_names}")
 
             tracker.process_frame(
                 boxes=box_coords,
@@ -621,11 +621,11 @@ def notify_users_about_accident(accident_id: int, latitude: float, longitude: fl
         )
         if response.status_code == 200:
             result = response.json()
-            logger.info(f"✅ Accident service notified nearby users: {result.get('message', '')}")
+            logger.info(f" Accident service notified nearby users: {result.get('message', '')}")
         else:
-            logger.warning(f"⚠️ Accident service returned {response.status_code}: {response.text}")
+            logger.warning(f" Accident service returned {response.status_code}: {response.text}")
     except Exception as e:
-        logger.error(f"❌ Error calling accident service: {e}", exc_info=True)
+        logger.error(f" Error calling accident service: {e}", exc_info=True)
 
 async def process_video_detection(request: VideoDetectionRequest, video_path: str):
     db_conn = None
@@ -645,22 +645,22 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             for test_path in paths_to_try:
                 if os.path.exists(test_path) and os.path.isfile(test_path):
                     video_path = test_path
-                    logger.info(f"✅ Found video at: {video_path}")
+                    logger.info(f" Found video at: {video_path}")
                     break
         if not video_path or not os.path.exists(video_path):
             error_msg = f"Video file not found: {request.filePath}. Tried multiple paths."
-            logger.error(f"❌ {error_msg}")
+            logger.error(f" {error_msg}")
             raise Exception(error_msg)
-        logger.info(f"📹 Extracting frames from: {video_path}")
+        logger.info(f" Extracting frames from: {video_path}")
         frames = extract_frames(video_path, config.FRAME_INTERVAL, config.MAX_FRAMES)
         if len(frames) == 0:
             logger.warning(f"No frames extracted from video: {video_path}")
             raise Exception("Could not extract frames from video")
-        logger.info(f"📊 Extracted {len(frames)} frames, running detection...")
+        logger.info(f" Extracted {len(frames)} frames, running detection...")
         detection_result = detect_accident(frames, config.MODEL_CONFIDENCE)
         has_accident = detection_result['hasAccident']
         confidence = detection_result['confidence']
-        logger.info(f"🔍 Detection result: hasAccident={has_accident}, confidence={confidence:.2%}")
+        logger.info(f" Detection result: hasAccident={has_accident}, confidence={confidence:.2%}")
         def make_serializable(obj):
             if isinstance(obj, (np.integer, np.int64, np.int32)):
                 return int(obj)
@@ -723,7 +723,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                 accident_result = cursor.fetchone()
                 if accident_result:
                     accident_id = accident_result[0]
-                    logger.info(f"✅ Accident {accident_id} confirmed")
+                    logger.info(f" Accident {accident_id} confirmed")
                     notify_users_about_accident(accident_id, request.latitude, request.longitude, request.description, confidence)
             else:
                 if confidence < 0.3:
@@ -735,9 +735,9 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
 
             db_conn.commit()
             cursor.close()
-            logger.info(f"✅ Video {request.videoId} processing completed")
+            logger.info(f" Video {request.videoId} processing completed")
         except Exception as db_err:
-            logger.error(f"❌ Failed to update video status on error: {db_err}", exc_info=True)
+            logger.error(f" Failed to update video status on error: {db_err}", exc_info=True)
         finally:
             if db_conn:
                 try:
@@ -753,7 +753,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
             "detected_objects": detected_objects_data
         }
     except Exception as e:
-        logger.error(f"❌ Video processing failed: {str(e)}", exc_info=True)
+        logger.error(f" Video processing failed: {str(e)}", exc_info=True)
         if db_conn:
             try:
                 cursor = db_conn.cursor()
@@ -775,7 +775,7 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
 @app.post("/detect/video")
 async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks: BackgroundTasks):
     try:
-        logger.info(f"📹 Processing video detection: videoId={request.videoId}, filePath={request.filePath}")
+        logger.info(f" Processing video detection: videoId={request.videoId}, filePath={request.filePath}")
         original_path = request.filePath
         paths_to_try = [
             original_path,
@@ -792,7 +792,7 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
                 video_path = test_path
                 break
         if not video_path:
-            logger.error(f"❌ Video file not found! Searched paths:\n" + "\n".join(found_paths))
+            logger.error(f"   Video file not found! Searched paths:\n" + "\n".join(found_paths))
             logger.error(f"   Original filePath from request: {original_path}")
             logger.error(f"   Current working directory: {os.getcwd()}")
             logger.error(f"   /app/uploads exists: {os.path.exists('/app/uploads')}")
@@ -804,9 +804,9 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
                     pass
             video_path = None
         if video_path:
-            logger.info(f"✅ Found video at: {video_path}")
+            logger.info(f" Found video at: {video_path}")
         else:
-            logger.warning(f"⚠️ Video path not found, will try in background task")
+            logger.warning(f" Video path not found, will try in background task")
         try:
             conn = psycopg2.connect(
                 host=os.getenv('DB_HOST', 'localhost'),
@@ -835,7 +835,7 @@ async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks
             "videoId": request.videoId
         }
     except Exception as e:
-        logger.error(f"❌ Error starting video detection: {str(e)}", exc_info=True)
+        logger.error(f" Error starting video detection: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
@@ -850,5 +850,5 @@ def health_check():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv('PORT', 3004))
-    logger.info(f"🚀 Starting AI Detection Service on port {port}")
+    logger.info(f" Starting AI Detection Service on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

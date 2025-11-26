@@ -9,10 +9,10 @@ const cors = require('cors');
 const rootEnvPath = path.resolve(__dirname, '../../.env');
 if (fs.existsSync(rootEnvPath)) {
     dotenv.config({ path: rootEnvPath });
-    console.log(`✅ Loaded .env from ${rootEnvPath}`);
+    console.log(` Loaded .env from ${rootEnvPath}`);
 } else {
     dotenv.config();
-    console.log('⚠️ Loaded .env from current directory (or defaults)');
+    console.log(' Loaded .env from current directory (or defaults)');
 }
 
 const app = express();
@@ -43,10 +43,10 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         const filePath = req.file.path;
         const mimeType = req.file.mimetype;
 
-        console.log(`🔍 Analyzing image: ${req.file.originalname} (${mimeType})`);
+        console.log(` Analyzing image: ${req.file.originalname} (${mimeType})`);
 
         if (!process.env.GEMINI_API_KEY) {
-            console.warn('⚠️ No GEMINI_API_KEY found. Returning MOCK response.');
+            console.warn(' No GEMINI_API_KEY found. Returning MOCK response.');
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             return res.json({
                 success: true,
@@ -82,7 +82,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         const response = await result.response;
         const text = response.text();
 
-        console.log('🤖 Gemini Response:', text);
+        console.log(' Gemini Response:', text);
 
         let analysis;
         try {
@@ -101,7 +101,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Gemini Analysis Error:', error);
+        console.error(' Gemini Analysis Error:', error);
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
@@ -127,5 +127,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`✨ Gemini Service running on port ${PORT}`);
+    console.log(` Gemini Service running on port ${PORT}`);
 });

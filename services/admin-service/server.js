@@ -46,7 +46,7 @@ const redis = new Redis({
   enableOfflineQueue: false,
 });
 redis.on('error', (err) => console.error('Redis error:', err));
-redis.on('connect', () => console.log('✅ Redis connected'));
+redis.on('connect', () => console.log(' Redis connected'));
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = 12;
 const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http://camera-service:3009';
@@ -660,11 +660,11 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 app.listen(PORT, () => {
-  console.log(`👨‍💼 Admin Service running on port ${PORT}`);
-  console.log(`📁 Static files: ${path.join(__dirname, 'public')}`);
-  console.log(`🔒 JWT Secret: ${JWT_SECRET.substring(0, 10)}...`);
-  console.log(`📊 Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
-  console.log(`💾 Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
-  console.log(`📹 Camera Service: ${CAMERA_SERVICE_URL}`);
+  console.log(` Admin Service running on port ${PORT}`);
+  console.log(` Static files: ${path.join(__dirname, 'public')}`);
+  console.log(` JWT Secret: ${JWT_SECRET.substring(0, 10)}...`);
+  console.log(` Database: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+  console.log(` Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+  console.log(` Camera Service: ${CAMERA_SERVICE_URL}`);
 });
 module.exports = app;

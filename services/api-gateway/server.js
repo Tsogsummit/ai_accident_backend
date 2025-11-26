@@ -38,10 +38,10 @@ app.use((req, res, next) => {
 });
 app.use((req, res, next) => {
   const start = Date.now();
-  console.log(`[${req.id}] 📥 ${req.method} ${req.path} from ${req.ip}`);
+  console.log(`[${req.id}]  ${req.method} ${req.path} from ${req.ip}`);
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${req.id}] ✅ ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+    console.log(`[${req.id}]  ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
   });
   next();
 });
@@ -103,7 +103,7 @@ const createProxy = (target, options = {}) => {
     proxyTimeout: 30000,
     ...options,
     onProxyReq: (proxyReq, req, res) => {
-      console.log(`🔄 Proxying ${req.method} ${req.path} -> ${target}${options.pathRewrite ? options.pathRewrite[`^${req.baseUrl}`] : req.path}`);
+      console.log(` Proxying ${req.method} ${req.path} -> ${target}${options.pathRewrite ? options.pathRewrite[`^${req.baseUrl}`] : req.path}`);
       if (req.body && Object.keys(req.body).length > 0) {
         const bodyData = JSON.stringify(req.body);
         proxyReq.setHeader('Content-Type', 'application/json');
@@ -116,7 +116,7 @@ const createProxy = (target, options = {}) => {
       proxyRes.headers['Access-Control-Allow-Credentials'] = 'true';
     },
     onError: (err, req, res) => {
-      console.error(`❌ Proxy error for ${req.method} ${req.path}:`, err.message);
+      console.error(` Proxy error for ${req.method} ${req.path}:`, err.message);
       if (!res.headersSent) {
         res.status(503).json({
           success: false,

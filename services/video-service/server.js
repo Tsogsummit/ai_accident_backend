@@ -44,9 +44,9 @@ app.post('/upload', upload.single('video'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { userId, latitude, longitude, description } = req.body;
-    const authHeader = req.headers['authorization']; 
+    const authHeader = req.headers['authorization'];
 
-    console.log('📹 Video upload started');
+    console.log('    Video upload started');
     console.log('   userId:', userId);
     console.log('   latitude:', latitude);
     console.log('   longitude:', longitude);
@@ -90,12 +90,12 @@ app.post('/upload', upload.single('video'), async (req, res) => {
       'uploaded'
     ]);
     const video = videoResult.rows[0];
-    console.log(`✅ Video created: ID=${video.id}`);
+    console.log(` Video created: ID=${video.id}`);
 
-    await client.query('COMMIT'); 
+    await client.query('COMMIT');
 
     const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
-    console.log(`🔄 Calling Accident Service at ${accidentServiceUrl}...`);
+    console.log(` Calling Accident Service at ${accidentServiceUrl}...`);
 
     let accidentData;
     try {
@@ -105,11 +105,11 @@ app.post('/upload', upload.single('video'), async (req, res) => {
           latitude: parseFloat(latitude),
           longitude: parseFloat(longitude),
           description: description || 'Хэрэглэгчээс бичигдсэн бичлэг',
-          videoId: video.id 
+          videoId: video.id
         },
         {
           headers: {
-            'Authorization': authHeader, 
+            'Authorization': authHeader,
             'Content-Type': 'application/json'
           }
         }
@@ -117,12 +117,12 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
       if (accidentResponse.data.success) {
         accidentData = accidentResponse.data.data;
-        console.log(`✅ Accident Service responded: ID=${accidentData.id} (${accidentResponse.data.message})`);
+        console.log(` Accident Service responded: ID=${accidentData.id} (${accidentResponse.data.message})`);
       } else {
         throw new Error(accidentResponse.data.error || 'Accident service returned unsuccessful');
       }
     } catch (serviceError) {
-      console.error('❌ Failed to call Accident Service:', serviceError.message);
+      console.error(' Failed to call Accident Service:', serviceError.message);
       if (serviceError.response) {
         console.error('   Response:', serviceError.response.data);
       }
@@ -133,14 +133,14 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
     const finalPath = path.join(__dirname, 'uploads', fileName);
     await fs.rename(file.path, finalPath);
-    console.log(`✅ File saved: ${finalPath}`);
+    console.log(` File saved: ${finalPath}`);
 
     const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
     const relativeFilePath = fileName;
 
     triggerAIDetection(video.id, userId, relativeFilePath, parseFloat(latitude), parseFloat(longitude), description || 'Хэрэглэгчээс бичигдсэн бичлэг')
       .catch(err => {
-        console.error('⚠️ Failed to trigger AI detection:', err.message);
+        console.error(' Failed to trigger AI detection:', err.message);
       });
 
     res.status(200).json({
@@ -160,8 +160,8 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     });
 
   } catch (error) {
-    if (client) await client.query('ROLLBACK'); 
-    console.error('❌ Video upload error:', error);
+    if (client) await client.query('ROLLBACK');
+    console.error(' Video upload error:', error);
     if (req.file) {
       try {
         await fs.access(req.file.path).then(() => fs.unlink(req.file.path)).catch(() => { });
@@ -344,7 +344,7 @@ app.delete('/videos/:id', async (req, res) => {
 async function triggerAIDetection(videoId, userId, filePath, latitude, longitude, description) {
   const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
   try {
-    console.log(`🤖 Triggering AI detection for video ${videoId}`);
+    console.log(` Triggering AI detection for video ${videoId}`);
     const response = await axios.post(`${aiServiceUrl}/detect/video`, {
       videoId: videoId,
       userId: userId,
@@ -355,10 +355,10 @@ async function triggerAIDetection(videoId, userId, filePath, latitude, longitude
     }, {
       timeout: 5000
     });
-    console.log(`✅ AI detection triggered: videoId=${videoId}, status=${response.data.status}`);
+    console.log(` AI detection triggered: videoId=${videoId}, status=${response.data.status}`);
     return response.data;
   } catch (error) {
-    console.error(`❌ AI detection trigger error for video ${videoId}:`, error.message);
+    console.error(` AI detection trigger error for video ${videoId}:`, error.message);
     try {
       const client = await pool.connect();
       await client.query(`
@@ -391,7 +391,7 @@ app.post('/videos/:id/retry-ai', async (req, res) => {
     }
     const video = result.rows[0];
     const fileName = path.basename(video.file_path);
-    console.log(`🔄 Retrying AI detection for video ${id}`);
+    console.log(` Retrying AI detection for video ${id}`);
     try {
       await triggerAIDetection(
         video.id,
@@ -430,7 +430,7 @@ app.get('/health', (req, res) => {
 const uploadsDir = path.join(__dirname, 'uploads');
 fs.mkdir(uploadsDir, { recursive: true }).catch(console.error);
 app.listen(PORT, () => {
-  console.log(`📹 Video Service running on port ${PORT}`);
-  console.log(`📁 Uploads directory: ${uploadsDir}`);
+  console.log(` Video Service running on port ${PORT}`);
+  console.log(` Uploads directory: ${uploadsDir}`);
 });
 module.exports = app;
