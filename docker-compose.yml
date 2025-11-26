@@ -32,11 +32,9 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ✅ FIXED: Redis with proper health check
   redis:
     image: redis:7-alpine
     container_name: accident_redis
-    # Only use password if REDIS_PASSWORD is set
     command: >
       sh -c "
       if [ -n \"$$REDIS_PASSWORD\" ]; then
@@ -55,7 +53,6 @@ services:
       - accident_network
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-    # Health check that works with or without password
     healthcheck:
       test: >
         sh -c "

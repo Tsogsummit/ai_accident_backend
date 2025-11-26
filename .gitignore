@@ -2,10 +2,6 @@
 # AI Accident Detection System - .gitignore
 # ==========================================
 
-# ==========================================
-# ⚠️  CRITICAL: CREDENTIALS & SECRETS
-# ==========================================
-# ХЭЗЭЭ Ч эдгээр файлуудыг Git-д commit хийж болохгүй!
 .env
 .env.local
 .env.production
