@@ -195,31 +195,31 @@ app.use((req, res) => {
   });
 });
 app.use((err, req, res, next) => {
-  console.error('❌ Gateway error:', err);
+  console.error('Gateway error:', err);
   res.status(err.status || 500).json({
     success: false,
     error: process.env.NODE_ENV === 'production'
-      ? 'Серверийн алдаа гарлаа'
+      ? 'Server error occurred'
       : err.message,
     timestamp: new Date().toISOString()
   });
 });
 
 const server = app.listen(PORT, () => {
-  console.log(`🚀 API Gateway эхэллээ`);
-  console.log(`📍 PORT: ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📋 Available services:`, Object.keys(SERVICES).join(', '));
+  console.log(`API Gateway started successfully`);
+  console.log(`PORT: ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Available services:`, Object.keys(SERVICES).join(', '));
 });
 
 const shutdown = async () => {
-  console.log('\n🛑 Shutting down gracefully...');
+  console.log('\nShutting down gracefully...');
   server.close(() => {
-    console.log('✅ Server closed');
+    console.log('Server closed');
     process.exit(0);
   });
   setTimeout(() => {
-    console.error('⚠️  Forced shutdown');
+    console.error('Forced shutdown');
     process.exit(1);
   }, 10000);
 };
