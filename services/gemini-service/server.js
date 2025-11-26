@@ -6,7 +6,6 @@ const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
 
-// Try to load from root .env if not found in current dir
 const rootEnvPath = path.resolve(__dirname, '../../.env');
 if (fs.existsSync(rootEnvPath)) {
     dotenv.config({ path: rootEnvPath });
@@ -22,13 +21,10 @@ const PORT = process.env.PORT || 3010;
 app.use(cors());
 app.use(express.json());
 
-// Configure Multer for temporary storage
 const upload = multer({ dest: 'uploads/' });
 
-// Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Helper to convert file to GenerativePart
 function fileToGenerativePart(path, mimeType) {
     return {
         inlineData: {
@@ -49,10 +45,8 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
 
         console.log(`🔍 Analyzing image: ${req.file.originalname} (${mimeType})`);
 
-        // For now, if no API key, return mock response (for testing without key)
         if (!process.env.GEMINI_API_KEY) {
             console.warn('⚠️ No GEMINI_API_KEY found. Returning MOCK response.');
-            // Cleanup
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             return res.json({
                 success: true,
@@ -76,7 +70,6 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
       Do not include markdown formatting like \`\`\`json. Just the raw JSON string.
     `;
 
-        // Read file and convert to base64
         const fileBuffer = fs.readFileSync(filePath);
         const imagePart = {
             inlineData: {
@@ -91,10 +84,8 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
 
         console.log('🤖 Gemini Response:', text);
 
-        // Parse JSON
         let analysis;
         try {
-            // Clean up markdown if present
             const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
             analysis = JSON.parse(jsonStr);
         } catch (e) {
@@ -102,7 +93,6 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
             analysis = { isAccident: false, confidence: 0, description: "Failed to parse AI response", type: "unknown" };
         }
 
-        // Cleanup temp file
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
         res.json({
@@ -116,7 +106,6 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
             fs.unlinkSync(req.file.path);
         }
 
-        // Check for 403 Forbidden (API Key issue)
         if (error.message.includes('403') || error.message.includes('Forbidden') || error.message.includes('API key')) {
             return res.status(500).json({
                 success: false,

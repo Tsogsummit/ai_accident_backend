@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 const { Blob } = require('buffer');
 
-// Configure Multer
 const upload = multer({ dest: 'uploads/' });
 const rateLimit = require('express-rate-limit');
 const { Pool } = require('pg');
@@ -17,9 +16,8 @@ const { body, query, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
 
-// Haversine formula to calculate distance between two coordinates in meters
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Earth's radius in meters
+  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -119,11 +117,11 @@ const authenticateToken = (req, res, next) => {
       error: 'Нэвтрэх шаардлагатай'
     });
   }
-  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-in-production', (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET , (err, user) => {
     if (err) {
       console.error('Token verification failed:', err.message);
       console.log('Token:', token);
-      console.log('Secret used:', process.env.JWT_SECRET || 'your-secret-key-change-in-production');
+      console.log('Secret used:', process.env.JWT_SECRET);
       return res.status(403).json({
         success: false,
         error: 'Хүчингүй токен'
@@ -183,7 +181,7 @@ app.get('/accidents',
     query('offset').optional().isInt({ min: 0 }),
     query('forceRefresh').optional().isBoolean(),
     query('userOnly').optional().isBoolean(),
-    query('activeOnly').optional().isBoolean(), // ✅ NEW: Filter for map view
+    query('activeOnly').optional().isBoolean(),
   ],
   validate,
   async (req, res) => {
@@ -243,7 +241,6 @@ app.get('/accidents',
         params.push(status);
       }
 
-      // ✅ NEW: Filter for map view - only show active accidents (not resolved/expired)
       if (activeOnly === 'true' || activeOnly === true) {
         queryText += ` AND a.status IN ('reported', 'confirmed')`;
         queryText += ` AND a.resolved_at IS NULL`;
@@ -256,7 +253,6 @@ app.get('/accidents',
         GROUP BY a.id, u.name, u.phone, c.name
       `;
 
-      // ✅ NEW: Filter by minimum false reports (for Admin Dashboard)
       if (minFalseReports) {
         queryText += ` HAVING COUNT(DISTINCT fr.id) >= $${paramIndex++}`;
         params.push(parseInt(minFalseReports));
@@ -316,7 +312,6 @@ app.post('/accidents',
       const userId = req.user.userId;
       await client.query('BEGIN');
 
-      // ✅ RATE LIMIT: Check if user reported an accident in the last 15 minutes
       const rateLimitCheck = await client.query(`
         SELECT ar.created_at, a.latitude, a.longitude, a.id
         FROM accident_reports ar
@@ -343,13 +338,11 @@ app.post('/accidents',
         });
       }
 
-      // ✅ Check for existing nearby accident (deduplication)
       const DUPLICATE_RADIUS_METERS = 200;
       const DUPLICATE_TIME_MINUTES = 60;
 
       console.log(`🔍 Checking for duplicates at ${latitude}, ${longitude} within ${DUPLICATE_RADIUS_METERS}m and ${DUPLICATE_TIME_MINUTES} min`);
 
-      // Get recent accidents and check distance in JavaScript (more reliable than SQL extensions)
       let existingAccident = null;
       try {
         const recentAccidents = await client.query(`
@@ -363,9 +356,7 @@ app.post('/accidents',
 
         console.log(`🔍 Found ${recentAccidents.rows.length} recent accidents to check`);
 
-        // Check each recent accident for proximity using JavaScript
         for (const accident of recentAccidents.rows) {
-          // 1. Check for exact video match if videoId is provided
           if (videoId && accident.video_id && String(accident.video_id) === String(videoId)) {
             console.log(`🔍 Found duplicate by videoId! Accident #${accident.id}`);
             existingAccident = { ...accident, matchType: 'video' };
@@ -395,17 +386,14 @@ app.post('/accidents',
         existingAccident = null;
       }
 
-      // Convert to the format expected by the rest of the code
       const existingResult = existingAccident ? { rows: [existingAccident] } : { rows: [] };
 
       let accident;
       let isNewAccident = true;
 
       if (existingResult.rows.length > 0) {
-        // ✅ Found existing accident - add to it instead of creating new
         const existingAccident = existingResult.rows[0];
 
-        // Check if user already reported this accident
         const alreadyReported = await client.query(`
           SELECT id FROM accident_reports
           WHERE accident_id = $1 AND user_id = $2
@@ -413,8 +401,6 @@ app.post('/accidents',
 
         const userHasReported = alreadyReported.rows.length > 0;
 
-        // Update existing accident report count
-        // We increment count even if same user reported, as per request
         const updateResult = await client.query(`
           UPDATE accidents
           SET report_count = report_count + 1,
@@ -427,14 +413,12 @@ app.post('/accidents',
         isNewAccident = false;
 
         if (!userHasReported) {
-          // Add to accident_reports table only if not already reported
           await client.query(`
             INSERT INTO accident_reports (accident_id, user_id, video_id, latitude, longitude, description)
             VALUES ($1, $2, $3, $4, $5, $6)
             `, [existingAccident.id, userId, videoId, latitude, longitude, description]);
         } else {
           console.log(`ℹ️ User ${userId} already reported accident #${existingAccident.id}.Skipping report insertion.`);
-          // Optional: Update description if new one is provided?
           if (description) {
             await client.query(`
               UPDATE accident_reports
@@ -453,7 +437,6 @@ app.post('/accidents',
 
         console.log(`✅ Added report to existing accident #${existingAccident.id}(now ${accident.report_count} reports)`);
       } else {
-        // ✅ Create new accident
         const accidentResult = await client.query(`
           INSERT INTO accidents(
               user_id, latitude, longitude, description,
@@ -464,7 +447,6 @@ app.post('/accidents',
             `, [userId, latitude, longitude, description, 'reported', 'user', videoId, imageUrl]);
         accident = accidentResult.rows[0];
 
-        // Add first report to accident_reports
         await client.query(`
           INSERT INTO accident_reports(accident_id, user_id, video_id, latitude, longitude, description)
           VALUES($1, $2, $3, $4, $5, $6)
@@ -512,7 +494,6 @@ app.post('/accidents',
   }
 );
 
-// ✅ NEW: Endpoint for Report Service to forward image reports
 app.post('/accidents/report-image',
   authenticateToken,
   upload.single('image'),
@@ -528,7 +509,6 @@ app.post('/accidents/report-image',
         return res.status(400).json({ success: false, error: 'Image file is required' });
       }
 
-      // Parse analysis data if provided
       let analysis = {};
       try {
         if (analysisData) {
@@ -538,12 +518,10 @@ app.post('/accidents/report-image',
         console.warn('Failed to parse analysis data:', e);
       }
 
-      // Construct image URL (assuming local storage for now)
       const imageUrl = `${process.env.API_URL || 'http://localhost:3002'}/uploads/${req.file.filename}`;
 
       await client.query('BEGIN');
 
-      // ✅ RATE LIMIT: Check if user reported an accident in the last 15 minutes
       const rateLimitCheck = await client.query(`
         SELECT ar.created_at, a.latitude, a.longitude, a.id
         FROM accident_reports ar
@@ -561,7 +539,6 @@ app.post('/accidents/report-image',
 
         await client.query('ROLLBACK');
 
-        // Delete uploaded file since we're rejecting the request
         if (req.file && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
@@ -575,7 +552,6 @@ app.post('/accidents/report-image',
         });
       }
 
-      // ✅ Check for existing nearby accidents (within 100 meters, last 2 hours)
       const nearbyCheck = await client.query(`
         SELECT id, latitude, longitude, report_count, description
         FROM accidents
@@ -590,7 +566,6 @@ app.post('/accidents/report-image',
       let isNewAccident = false;
 
       if (nearbyCheck.rows.length > 0) {
-        // ✅ Existing accident found - increment report count
         const existingAccident = nearbyCheck.rows[0];
         console.log(`🔄 Found existing accident ${existingAccident.id} within 100m - merging reports`);
 
@@ -605,7 +580,6 @@ app.post('/accidents/report-image',
         accident = updateResult.rows[0];
         isNewAccident = false;
       } else {
-        // ✅ No nearby accident - create new one
         console.log(`✨ No nearby accident found - creating new accident`);
 
         const accidentResult = await client.query(`
@@ -629,7 +603,6 @@ app.post('/accidents/report-image',
         isNewAccident = true;
       }
 
-      // Add report details (check for duplicate user reports)
       try {
         await client.query(`
           INSERT INTO accident_reports(accident_id, user_id, latitude, longitude, description)
@@ -642,7 +615,6 @@ app.post('/accidents/report-image',
 
       await client.query('COMMIT');
 
-      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) await redis.del(...keys);
@@ -650,7 +622,6 @@ app.post('/accidents/report-image',
         console.warn('Cache clear failed:', redisErr.message);
       }
 
-      // ✅ Only notify nearby users if this is a NEW accident (not a duplicate report)
       if (isNewAccident) {
         console.log(`📢 Notifying nearby users about new accident ${accident.id}`);
         notifyNearbyUsers(accident, 5000).catch(err =>
@@ -748,7 +719,6 @@ app.put('/accidents/:id/status',
       const { id } = req.params;
       const { status } = req.body;
 
-      // Set timestamps based on status change
       let additionalFields = '';
       if (status === 'confirmed') {
         additionalFields = ', confirmed_at = NOW()';
@@ -791,7 +761,6 @@ app.put('/accidents/:id/status',
   }
 );
 
-// ✅ NEW: Resolve accident endpoint - marks accident as cleared from map
 app.post('/accidents/:id/resolve',
   authenticateToken,
   async (req, res) => {
@@ -799,7 +768,6 @@ app.post('/accidents/:id/resolve',
       const { id } = req.params;
       const userId = req.user.userId;
 
-      // Check if user is the reporter or an admin
       const accidentCheck = await pool.query(`
         SELECT user_id FROM accidents WHERE id = $1
             `, [id]);
@@ -818,7 +786,6 @@ app.post('/accidents/:id/resolve',
       RETURNING *
             `, [id]);
 
-      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) {
@@ -828,7 +795,6 @@ app.post('/accidents/:id/resolve',
         console.warn('Cache clear failed:', redisErr.message);
       }
 
-      // Notify connected users that accident is resolved
       io.emit('accident_resolved', {
         accidentId: parseInt(id),
         resolvedAt: new Date().toISOString()
@@ -918,7 +884,6 @@ async function notifyNearbyUsers(accident, radiusMeters) {
   }
 }
 
-// ✅ NEW: Report accident as false alarm (User action)
 app.post('/accidents/:id/report-false',
   authenticateToken,
   async (req, res) => {
@@ -926,13 +891,11 @@ app.post('/accidents/:id/report-false',
       const { id } = req.params;
       const userId = req.user.userId;
 
-      // Check if accident exists
       const accidentCheck = await pool.query('SELECT id FROM accidents WHERE id = $1', [id]);
       if (accidentCheck.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Осол олдсонгүй' });
       }
 
-      // Check if user already reported as false
       const existingReport = await pool.query(
         'SELECT id FROM false_reports WHERE accident_id = $1 AND user_id = $2',
         [id, userId]
@@ -942,13 +905,11 @@ app.post('/accidents/:id/report-false',
         return res.status(400).json({ success: false, error: 'Та аль хэдийн худал дуудлага гэж мэдэгдсэн байна' });
       }
 
-      // Insert false report
       await pool.query(
         'INSERT INTO false_reports (accident_id, user_id, reported_at) VALUES ($1, $2, NOW())',
         [id, userId]
       );
 
-      // Clear cache
       try {
         const keys = await redis.keys('accidents:*');
         if (keys.length > 0) await redis.del(...keys);
@@ -964,7 +925,6 @@ app.post('/accidents/:id/report-false',
   }
 );
 
-// ✅ NEW: Admin Health Check
 app.get('/admin/health', authenticateToken, async (req, res) => {
   const health = {
     service: 'accident-service',
@@ -977,7 +937,6 @@ app.get('/admin/health', authenticateToken, async (req, res) => {
     }
   };
 
-  // Check DB
   try {
     await pool.query('SELECT 1');
     health.components.database.status = 'healthy';
@@ -987,7 +946,6 @@ app.get('/admin/health', authenticateToken, async (req, res) => {
     health.status = 'degraded';
   }
 
-  // Check Redis
   try {
     await redis.ping();
     health.components.redis.status = 'healthy';
@@ -997,7 +955,6 @@ app.get('/admin/health', authenticateToken, async (req, res) => {
     health.status = 'degraded';
   }
 
-  // Check Gemini Service
   try {
     const axios = require('axios');
     const geminiUrl = process.env.GEMINI_SERVICE_URL || 'http://localhost:3010';

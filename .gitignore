@@ -86,11 +86,6 @@ env/
 # ==========================================
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
 
 # ==========================================
 # Database
@@ -112,13 +107,8 @@ temp/
 *.tmp
 *.cache
 .cache/
-.vscode/
-.idea/
 *.swp
 *.swo
-*~
-.DS_Store
-Thumbs.db
 *.bak
 
 # ==========================================
@@ -201,37 +191,19 @@ htmlcov/
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon
 ._*
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
 .Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
 
 # Windows
 Thumbs.db
-Thumbs.db:encryptable
 ehthumbs.db
-ehthumbs_vista.db
-*.stackdump
 [Dd]esktop.ini
 $RECYCLE.BIN/
-*.cab
-*.msi
-*.msix
-*.msm
-*.msp
-*.lnk
 
 # Linux
 *~
-.fuse_hidden*
 .directory
 .Trash-*
-.nfs*
 
 # ==========================================
 # Build & Distribution
@@ -261,8 +233,6 @@ certs/
 *.backup
 *.old
 *.orig
-*.bak
-*~
 
 # ==========================================
 # Configuration Files (may contain secrets)
@@ -287,42 +257,14 @@ settings.local.json
 # ==========================================
 # Project Specific
 # ==========================================
-# Temporary processing files
-/tmp/
-/temp/
 camera_*.mp4
 video_*.mp4
 frame_*.jpg
 frame_*.png
 
 # Redis data
-dump.rdb
 appendonly.aof
 
 # PostgreSQL data
 postgres_data/
 pgdata/
-
-# ==========================================
-# ЗӨВЛӨМЖ: Одоо байгаа .env эсвэл credential files-үүдийг устгах
-# ==========================================
-# Хэрэв танай .env эсвэл credential files өмнө нь Git-д commit
-# хийгдсэн бол дараах алхмуудыг дагах:
-#
-# 1. Түүхээс устгах:
-#    git filter-branch --force --index-filter \
-#    "git rm --cached --ignore-unmatch .env" \
-#    --prune-empty --tag-name-filter cat -- --all
-#
-# 2. Эсвэл BFG Repo-Cleaner ашиглах (хурдан):
-#    bfg --delete-files .env
-#    git reflog expire --expire=now --all
-#    git gc --prune=now --aggressive
-#
-# 3. Force push:
-#    git push origin --force --all
-#
-# 4. БҮХ credentials-ийг СОЛИХ (leaked credentials нь хэзээ ч safe биш)
-#
-# ⚠️  Анхааруулга: Force push нь collaborative repository-д 
-#     асуудал үүсгэж болно. Team-тэйгээ зөвшилцөх!

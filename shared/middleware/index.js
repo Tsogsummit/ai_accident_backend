@@ -1,18 +1,13 @@
-// shared/middleware/index.js
-// Express middleware-ууд
+
 
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { errorResponse, logError } = require('../utils');
 
-/**
- * JWT Authentication middleware
- * Authorization header-аас токен шалгах
- */
 function authenticateToken(req, res, next) {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.split(' ')[1]; 
 
     if (!token) {
       return res.status(401).json(
@@ -41,9 +36,6 @@ function authenticateToken(req, res, next) {
   }
 }
 
-/**
- * Admin role шалгах middleware
- */
 function requireAdmin(req, res, next) {
   if (!req.user) {
     return res.status(401).json(
@@ -60,9 +52,6 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/**
- * Optional authentication - токен байвал шалгах, байхгүй бол next
- */
 function optionalAuth(req, res, next) {
   try {
     const authHeader = req.headers['authorization'];
@@ -83,9 +72,6 @@ function optionalAuth(req, res, next) {
   }
 }
 
-/**
- * Request validation middleware
- */
 function validateRequest(schema) {
   return (req, res, next) => {
     const { error, value } = schema.validate(req.body, { 
@@ -111,9 +97,6 @@ function validateRequest(schema) {
   };
 }
 
-/**
- * Error handler middleware
- */
 function errorHandler(err, req, res, next) {
   logError(err, {
     method: req.method,
@@ -121,21 +104,18 @@ function errorHandler(err, req, res, next) {
     user: req.user?.userId,
   });
 
-  // Duplicate key error (PostgreSQL)
   if (err.code === '23505') {
     return res.status(409).json(
       errorResponse('Давхардсан мэдээлэл', 409)
     );
   }
 
-  // Foreign key violation
   if (err.code === '23503') {
     return res.status(400).json(
       errorResponse('Холбоотой мэдээлэл олдсонгүй', 400)
     );
   }
 
-  // JWT errors
   if (err.name === 'JsonWebTokenError') {
     return res.status(401).json(
       errorResponse('Буруу токен', 401)
@@ -148,14 +128,12 @@ function errorHandler(err, req, res, next) {
     );
   }
 
-  // Validation errors
   if (err.name === 'ValidationError') {
     return res.status(400).json(
       errorResponse(err.message, 400)
     );
   }
 
-  // Default error
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json(
     errorResponse(
@@ -167,18 +145,12 @@ function errorHandler(err, req, res, next) {
   );
 }
 
-/**
- * Not found handler
- */
 function notFoundHandler(req, res) {
   res.status(404).json(
     errorResponse(`Endpoint олдсонгүй: ${req.method} ${req.path}`, 404)
   );
 }
 
-/**
- * Request logger middleware
- */
 function requestLogger(req, res, next) {
   const start = Date.now();
 
@@ -198,39 +170,27 @@ function requestLogger(req, res, next) {
   next();
 }
 
-/**
- * CORS middleware
- */
 function corsMiddleware(req, res, next) {
   const origin = req.headers.origin;
 
-  // Set allowed origin
   if (config.cors.origin === '*' || config.cors.origin.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || '*');
   }
 
-  // Common CORS headers
   res.setHeader('Access-Control-Allow-Methods', config.cors.methods.join(','));
   res.setHeader('Access-Control-Allow-Headers', config.cors.allowedHeaders.join(','));
   res.setHeader('Access-Control-Allow-Credentials', config.cors.credentials.toString());
 
-  // IMPORTANT: Required for browsers
   res.setHeader('Vary', 'Origin');
 
-  // Handle preflight (OPTIONS)
   if (req.method === 'OPTIONS') {
-    // Must include headers then respond
     return res.status(204).end();
   }
 
-  // Continue to next middleware (proxy)
   next();
 }
 
 
-/**
- * Rate limiting check middleware (Redis-тай ажиллах)
- */
 function rateLimitCheck(redis, options = {}) {
   const windowMs = options.windowMs || config.rateLimit.windowMs;
   const max = options.max || config.rateLimit.max;
@@ -258,17 +218,13 @@ function rateLimitCheck(redis, options = {}) {
       next();
     } catch (error) {
       logError(error, { middleware: 'rateLimitCheck' });
-      next(); // Алдаа гарвал rate limit-гүй үргэлжлүүлэх
+      next(); 
     }
   };
 }
 
-/**
- * Cache middleware (Redis)
- */
 function cacheMiddleware(redis, ttl = 300) {
   return async (req, res, next) => {
-    // Зөвхөн GET хүсэлтийг кэшлэх
     if (req.method !== 'GET') {
       return next();
     }
@@ -285,10 +241,8 @@ function cacheMiddleware(redis, ttl = 300) {
         });
       }
 
-      // Response-ыг capture хийх
       const originalJson = res.json.bind(res);
       res.json = (data) => {
-        // Кэшлэх
         redis.setex(key, ttl, JSON.stringify(data)).catch(err => {
           logError(err, { middleware: 'cacheMiddleware' });
         });
@@ -304,14 +258,10 @@ function cacheMiddleware(redis, ttl = 300) {
   };
 }
 
-/**
- * Sanitize request body (XSS protection)
- */
 function sanitizeBody(req, res, next) {
   if (req.body) {
     Object.keys(req.body).forEach(key => {
       if (typeof req.body[key] === 'string') {
-        // HTML tags устгах (энгийн шийдэл)
         req.body[key] = req.body[key]
           .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
           .replace(/<.*?>/g, '')
@@ -322,9 +272,6 @@ function sanitizeBody(req, res, next) {
   next();
 }
 
-/**
- * File upload validation middleware
- */
 function validateFileUpload(options = {}) {
   const maxSize = options.maxSize || config.upload.maxFileSize;
   const allowedTypes = options.allowedTypes || config.upload.allowedVideoTypes;
@@ -336,7 +283,6 @@ function validateFileUpload(options = {}) {
       );
     }
 
-    // File size шалгах
     if (req.file.size > maxSize) {
       return res.status(400).json(
         errorResponse(
@@ -346,7 +292,6 @@ function validateFileUpload(options = {}) {
       );
     }
 
-    // MIME type шалгах
     if (!allowedTypes.includes(req.file.mimetype)) {
       return res.status(400).json(
         errorResponse(
@@ -360,9 +305,6 @@ function validateFileUpload(options = {}) {
   };
 }
 
-/**
- * Pagination middleware
- */
 function paginationMiddleware(req, res, next) {
   const page = parseInt(req.query.page) || 1;
   const limit = Math.min(
@@ -380,9 +322,6 @@ function paginationMiddleware(req, res, next) {
   next();
 }
 
-/**
- * Service health check middleware
- */
 function healthCheck(serviceName, version = '1.0.0') {
   return (req, res) => {
     res.json({

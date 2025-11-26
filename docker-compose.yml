@@ -122,8 +122,8 @@ services:
 
   user-service:
     build:
-      context: ./services/user-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/user-service/Dockerfile
     container_name: accident_user_service
     ports:
       - "3001:3001"

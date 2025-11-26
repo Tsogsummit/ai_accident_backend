@@ -1,16 +1,11 @@
-// shared/database/index.js
-// PostgreSQL холболт ба нийтлэг queries
-
 const { Pool } = require('pg');
+const Redis = require('ioredis');
 const config = require('../config');
 const { logError, logInfo } = require('../utils');
 
-// Connection pool
 let pool = null;
+let redisClient = null;
 
-/**
- * Database холболт үүсгэх
- */
 function createPool() {
   if (pool) {
     return pool;
@@ -27,12 +22,10 @@ function createPool() {
     connectionTimeoutMillis: config.database.connectionTimeout,
   });
 
-  // Connection error handler
   pool.on('error', (err) => {
     logError(err, { context: 'PostgreSQL pool error' });
   });
 
-  // Connection handler
   pool.on('connect', () => {
     logInfo('PostgreSQL холболт үүслээ');
   });
@@ -40,9 +33,6 @@ function createPool() {
   return pool;
 }
 
-/**
- * Database pool авах
- */
 function getPool() {
   if (!pool) {
     return createPool();
@@ -50,9 +40,6 @@ function getPool() {
   return pool;
 }
 
-/**
- * Database холболт хаах
- */
 async function closePool() {
   if (pool) {
     await pool.end();
@@ -61,9 +48,45 @@ async function closePool() {
   }
 }
 
-/**
- * Transaction helper
- */
+function createRedis() {
+  if (redisClient) {
+    return redisClient;
+  }
+
+  redisClient = new Redis({
+    host: config.redis.host,
+    port: config.redis.port,
+    password: config.redis.password,
+    db: config.redis.db,
+    retryStrategy: config.redis.retryStrategy,
+  });
+
+  redisClient.on('error', (err) => {
+    logError(err, { context: 'Redis error' });
+  });
+
+  redisClient.on('connect', () => {
+    logInfo('Redis холболт үүслээ');
+  });
+
+  return redisClient;
+}
+
+function getRedis() {
+  if (!redisClient) {
+    return createRedis();
+  }
+  return redisClient;
+}
+
+async function closeRedis() {
+  if (redisClient) {
+    await redisClient.quit();
+    redisClient = null;
+    logInfo('Redis холболт хаагдлаа');
+  }
+}
+
 async function withTransaction(callback) {
   const client = await getPool().connect();
   
@@ -80,11 +103,7 @@ async function withTransaction(callback) {
   }
 }
 
-/**
- * Нийтлэг queries
- */
 const queries = {
-  // Users
   users: {
     findById: 'SELECT * FROM users WHERE id = $1',
     findByPhone: 'SELECT * FROM users WHERE phone = $1',
@@ -105,7 +124,6 @@ const queries = {
     delete: 'DELETE FROM users WHERE id = $1',
   },
 
-  // Accidents
   accidents: {
     findAll: `
       SELECT a.*, u.name as reported_by_name, c.name as camera_name
@@ -161,7 +179,6 @@ const queries = {
     `,
   },
 
-  // Videos
   videos: {
     findById: 'SELECT * FROM videos WHERE id = $1',
     findByUserId: `
@@ -189,7 +206,6 @@ const queries = {
     delete: 'DELETE FROM videos WHERE id = $1',
   },
 
-  // AI Detections
   aiDetections: {
     findByVideoId: 'SELECT * FROM ai_detections WHERE video_id = $1',
     create: `
@@ -207,7 +223,6 @@ const queries = {
     `,
   },
 
-  // Cameras
   cameras: {
     findAll: 'SELECT * FROM cameras ORDER BY created_at DESC',
     findById: 'SELECT * FROM cameras WHERE id = $1',
@@ -229,7 +244,6 @@ const queries = {
     delete: 'DELETE FROM cameras WHERE id = $1',
   },
 
-  // Notifications
   notifications: {
     findByUserId: `
       SELECT * FROM notifications 
@@ -263,7 +277,6 @@ const queries = {
     delete: 'DELETE FROM notifications WHERE id = $1',
   },
 
-  // False Reports
   falseReports: {
     findByAccidentId: `
       SELECT fr.*, u.name as reporter_name, rr.name as reason_name
@@ -287,7 +300,6 @@ const queries = {
     `,
   },
 
-  // Statistics
   statistics: {
     accidentsByDate: `
       SELECT DATE(timestamp) as date, COUNT(*) as count
@@ -317,9 +329,6 @@ const queries = {
   },
 };
 
-/**
- * Query helper function
- */
 async function query(text, params = []) {
   const start = Date.now();
   try {
@@ -340,18 +349,13 @@ async function query(text, params = []) {
   }
 }
 
-/**
- * Paginated query helper
- */
 async function paginatedQuery(baseQuery, params, page = 1, limit = 50) {
   const offset = (page - 1) * limit;
   
-  // Count total
   const countQuery = `SELECT COUNT(*) FROM (${baseQuery}) as count_query`;
   const countResult = await query(countQuery, params);
   const total = parseInt(countResult.rows[0].count);
   
-  // Get data
   const dataQuery = `${baseQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   const dataResult = await query(dataQuery, [...params, limit, offset]);
   
@@ -368,9 +372,6 @@ async function paginatedQuery(baseQuery, params, page = 1, limit = 50) {
   };
 }
 
-/**
- * Bulk insert helper
- */
 async function bulkInsert(tableName, columns, values) {
   const placeholders = values.map((_, i) => 
     `(${columns.map((_, j) => `$${i * columns.length + j + 1}`).join(', ')})`
@@ -386,6 +387,15 @@ async function bulkInsert(tableName, columns, values) {
   return await query(query, flatValues);
 }
 
+async function gracefulShutdown() {
+  logInfo('Graceful shutdown эхэллээ...');
+  await Promise.all([
+    closePool(),
+    closeRedis(),
+  ]);
+  logInfo('Бүх холболт хаагдлаа');
+}
+
 module.exports = {
   createPool,
   getPool,
@@ -395,4 +405,8 @@ module.exports = {
   paginatedQuery,
   bulkInsert,
   queries,
+  createRedis,
+  getRedis,
+  closeRedis,
+  gracefulShutdown,
 };

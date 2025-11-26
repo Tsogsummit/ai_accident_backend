@@ -1,14 +1,8 @@
-// shared/utils/index.js
-// Нийтлэг утилити функцүүд
-
 const crypto = require('crypto');
+const auth = require('./auth');
 
-/**
- * Хоёр газарзүйн цэгийн хоорондох зай (метрээр)
- * Haversine формул ашиглан
- */
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Дэлхийн радиус метрээр
+  const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -19,12 +13,9 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-  return R * c; // метрээр
+  return R * c;
 }
 
-/**
- * Зайг хүний уншиж болох форматруу хөрвүүлэх
- */
 function formatDistance(meters) {
   if (meters < 1000) {
     return `${Math.round(meters)}м`;
@@ -32,9 +23,6 @@ function formatDistance(meters) {
   return `${(meters / 1000).toFixed(1)}км`;
 }
 
-/**
- * Огноог форматлах (Монгол)
- */
 function formatDate(date) {
   const d = new Date(date);
   const year = d.getFullYear();
@@ -43,9 +31,6 @@ function formatDate(date) {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Цаг форматлах
- */
 function formatTime(date) {
   const d = new Date(date);
   const hours = String(d.getHours()).padStart(2, '0');
@@ -53,10 +38,6 @@ function formatTime(date) {
   return `${hours}:${minutes}`;
 }
 
-/**
- * Хугацааны зөрүү хүний уншиж болох форматаар
- * (5 минутын өмнө, 2 цагийн өмнө гэх мэт)
- */
 function timeAgo(date) {
   const now = new Date();
   const past = new Date(date);
@@ -73,25 +54,32 @@ function timeAgo(date) {
   return formatDate(date);
 }
 
-/**
- * Утасны дугаар шалгах (Монгол)
- */
 function validatePhone(phone) {
   const phoneRegex = /^\+976\d{8}$/;
   return phoneRegex.test(phone);
 }
 
-/**
- * Email шалгах
- */
 function validateEmail(email) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
 
-/**
- * Координат шалгах
- */
+function validatePassword(password) {
+  if (!password || password.length < 8) {
+    return { valid: false, error: 'Нууц үг 8-аас дээш тэмдэгт байх ёстой' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, error: 'Нууц үг том үсэг агуулсан байх ёстой' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, error: 'Нууц үг жижиг үсэг агуулсан байх ёстой' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: 'Нууц үг тоо агуулсан байх ёстой' };
+  }
+  return { valid: true };
+}
+
 function validateCoordinates(latitude, longitude) {
   const lat = parseFloat(latitude);
   const lon = parseFloat(longitude);
@@ -103,23 +91,14 @@ function validateCoordinates(latitude, longitude) {
   return true;
 }
 
-/**
- * Санамсаргүй ID үүсгэх
- */
 function generateId(length = 16) {
   return crypto.randomBytes(length).toString('hex');
 }
 
-/**
- * Random string үүсгэх
- */
 function generateRandomString(length = 32) {
   return crypto.randomBytes(length).toString('base64url');
 }
 
-/**
- * Paginate helper
- */
 function paginate(page = 1, limit = 50, maxLimit = 100) {
   const p = Math.max(1, parseInt(page));
   const l = Math.min(maxLimit, Math.max(1, parseInt(limit)));
@@ -128,9 +107,6 @@ function paginate(page = 1, limit = 50, maxLimit = 100) {
   return { limit: l, offset, page: p };
 }
 
-/**
- * Success response format
- */
 function successResponse(data, message = 'Амжилттай') {
   return {
     success: true,
@@ -140,9 +116,6 @@ function successResponse(data, message = 'Амжилттай') {
   };
 }
 
-/**
- * Error response format
- */
 function errorResponse(error, statusCode = 500) {
   return {
     success: false,
@@ -152,9 +125,6 @@ function errorResponse(error, statusCode = 500) {
   };
 }
 
-/**
- * Sanitize user object (нууц үгийг устгах)
- */
 function sanitizeUser(user) {
   const sanitized = { ...user };
   delete sanitized.password_hash;
@@ -162,9 +132,6 @@ function sanitizeUser(user) {
   return sanitized;
 }
 
-/**
- * File size-г хүний уншиж болох форматруу
- */
 function formatFileSize(bytes) {
   if (bytes === 0) return '0 Bytes';
   
@@ -175,46 +142,31 @@ function formatFileSize(bytes) {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
 
-/**
- * Retry функц (promise-д)
- */
 async function retry(fn, maxAttempts = 3, delay = 1000) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       return await fn();
     } catch (error) {
       if (i === maxAttempts - 1) throw error;
-      await sleep(delay * Math.pow(2, i)); // Exponential backoff
+      await sleep(delay * Math.pow(2, i)); 
     }
   }
 }
 
-/**
- * Sleep утилити
- */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Deep clone object
- */
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-/**
- * Remove null/undefined values from object
- */
 function removeEmpty(obj) {
   return Object.entries(obj)
     .filter(([_, v]) => v != null)
     .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
 }
 
-/**
- * Chunk array
- */
 function chunkArray(array, size) {
   const chunks = [];
   for (let i = 0; i < array.length; i += size) {
@@ -223,9 +175,6 @@ function chunkArray(array, size) {
   return chunks;
 }
 
-/**
- * Debounce функц
- */
 function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
@@ -238,9 +187,6 @@ function debounce(func, wait) {
   };
 }
 
-/**
- * Throttle функц
- */
 function throttle(func, limit) {
   let inThrottle;
   return function(...args) {
@@ -252,41 +198,20 @@ function throttle(func, limit) {
   };
 }
 
-/**
- * Cache key үүсгэх
- */
 function createCacheKey(prefix, ...parts) {
   return `${prefix}:${parts.filter(Boolean).join(':')}`;
 }
 
-/**
- * Severity-г өнгөөр илэрхийлэх
- */
-function getSeverityColor(severity) {
-  const colors = {
-    minor: '#FFA500',    // orange
-    moderate: '#FF6B00', // dark orange
-    severe: '#FF0000',   // red
-  };
-  return colors[severity] || '#808080';
-}
-
-/**
- * Status-г өнгөөр илэрхийлэх
- */
 function getStatusColor(status) {
   const colors = {
-    reported: '#FFA500',    // orange
-    confirmed: '#FF0000',   // red
-    resolved: '#00FF00',    // green
-    false_alarm: '#808080', // gray
+    reported: '#FFA500',   
+    confirmed: '#FF0000',  
+    resolved: '#00FF00',   
+    false_alarm: '#808080', 
   };
   return colors[status] || '#808080';
 }
 
-/**
- * Error logger
- */
 function logError(error, context = {}) {
   console.error({
     timestamp: new Date().toISOString(),
@@ -299,9 +224,6 @@ function logError(error, context = {}) {
   });
 }
 
-/**
- * Info logger
- */
 function logInfo(message, data = {}) {
   console.log({
     timestamp: new Date().toISOString(),
@@ -312,60 +234,47 @@ function logInfo(message, data = {}) {
 }
 
 module.exports = {
-  // Distance & Location
   calculateDistance,
   formatDistance,
   validateCoordinates,
-  
-  // Date & Time
+
   formatDate,
   formatTime,
   timeAgo,
-  
-  // Validation
+
   validatePhone,
   validateEmail,
-  
-  // ID & Random
+  validatePassword,
+
   generateId,
   generateRandomString,
-  
-  // Pagination
+
   paginate,
-  
-  // Response formatting
+
   successResponse,
   errorResponse,
-  
-  // User
+
   sanitizeUser,
-  
-  // File
+
   formatFileSize,
-  
-  // Async
+
   retry,
   sleep,
-  
-  // Object manipulation
+
   deepClone,
   removeEmpty,
-  
-  // Array
+
   chunkArray,
-  
-  // Function utilities
+
   debounce,
   throttle,
-  
-  // Cache
+
   createCacheKey,
-  
-  // UI
-  getSeverityColor,
+
   getStatusColor,
-  
-  // Logging
+
   logError,
   logInfo,
+
+  ...auth,
 };

@@ -68,12 +68,8 @@ app.get('/maps/markers', async (req, res) => {
       query += ` AND a.status = $${paramIndex++}`;
       params.push(status);
     }
-    if (severity) {
-      query += ` AND a.severity = $${paramIndex++}`;
-      params.push(severity);
-    }
     query += `
-      GROUP BY mm.id, a.severity, a.status, a.description, a.timestamp, a.verification_count
+      GROUP BY mm.id, a.status, a.description, a.timestamp, a.verification_count
       ORDER BY a.timestamp DESC
       LIMIT $${paramIndex}
     `;
@@ -88,9 +84,8 @@ app.get('/maps/markers', async (req, res) => {
       },
       color: row.color,
       icon: row.icon_type,
-      severity: row.severity,
       status: row.status,
-      title: getMarkerTitle(row.severity, row.status),
+      title: getMarkerTitle(row.status),
       snippet: row.description?.substring(0, 100),
       timestamp: row.timestamp,
       verificationCount: row.verification_count,
@@ -299,19 +294,19 @@ app.get('/maps/heatmap', async (req, res) => {
   try {
     const { days = 30 } = req.query;
     const result = await pool.query(`
-      SELECT latitude, longitude, severity,
+      SELECT latitude, longitude,
              COUNT(*) as weight
       FROM accidents
       WHERE timestamp >= NOW() - INTERVAL '${parseInt(days)} days'
         AND status != 'false_alarm'
-      GROUP BY latitude, longitude, severity
+      GROUP BY latitude, longitude
     `);
     const heatmapData = result.rows.map(row => ({
       location: {
         lat: parseFloat(row.latitude),
         lng: parseFloat(row.longitude)
       },
-      weight: parseInt(row.weight) * getSeverityWeight(row.severity)
+      weight: parseInt(row.weight)
     }));
     res.json({ heatmapData });
   } catch (error) {
@@ -319,19 +314,14 @@ app.get('/maps/heatmap', async (req, res) => {
     res.status(500).json({ error: 'Heatmap өгөгдөл авахад алдаа' });
   }
 });
-function getMarkerTitle(severity, status) {
-  const severityText = {
-    'minor': 'Бага',
-    'moderate': 'Дунд',
-    'severe': 'Ноцтой'
-  };
+function getMarkerTitle(status) {
   const statusText = {
     'reported': 'Мэдээлсэн',
     'confirmed': 'Баталгаажсан',
     'resolved': 'Шийдэгдсэн',
     'false_alarm': 'Худал'
   };
-  return `${severityText[severity] || severity} - ${statusText[status] || status}`;
+  return statusText[status] || status;
 }
 function extractAddressComponents(components) {
   const extracted = {};
@@ -353,14 +343,6 @@ function extractAddressComponents(components) {
     }
   });
   return extracted;
-}
-function getSeverityWeight(severity) {
-  const weights = {
-    'minor': 1,
-    'moderate': 2,
-    'severe': 3
-  };
-  return weights[severity] || 1;
 }
 app.get('/health', (req, res) => {
   res.json({

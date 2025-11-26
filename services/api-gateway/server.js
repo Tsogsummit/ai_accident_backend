@@ -6,11 +6,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-if (JWT_SECRET === 'your-secret-key-change-in-production' && process.env.NODE_ENV === 'production') {
-  console.error('❌ CRITICAL: JWT_SECRET not configured!');
-  process.exit(1);
-}
+const JWT_SECRET = process.env.JWT_SECRET;
 const SERVICES = {
   user: process.env.USER_SERVICE_URL || 'http://user-service:3001',
   accident: process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002',
@@ -208,27 +204,14 @@ app.use((err, req, res, next) => {
     timestamp: new Date().toISOString()
   });
 });
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log(`🚀 API Gateway running on port ${PORT}`);
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log('📡 Services:');
-  Object.entries(SERVICES).forEach(([name, url]) => {
-    console.log(`   ${name.padEnd(15)} → ${url}`);
-  });
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
-  console.log('🔒 CORS: Enabled for all origins (development mode)');
-  console.log('⚡ Rate limiting: Enabled');
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log('\n📱 Android Emulator URLs:');
-  console.log('   Development: http://10.0.2.2:3000');
-  console.log('   Real device: http://<YOUR_LOCAL_IP>:3000');
-  console.log('\n💡 Test endpoints:');
-  console.log(`   Health: http://localhost:${PORT}/health`);
-  console.log(`   Login:  POST http://localhost:${PORT}/auth/login`);
-  console.log('═══════════════════════════════════════════════════════════\n');
+
+const server = app.listen(PORT, () => {
+  console.log(`🚀 API Gateway эхэллээ`);
+  console.log(`📍 PORT: ${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📋 Available services:`, Object.keys(SERVICES).join(', '));
 });
+
 const shutdown = async () => {
   console.log('\n🛑 Shutting down gracefully...');
   server.close(() => {

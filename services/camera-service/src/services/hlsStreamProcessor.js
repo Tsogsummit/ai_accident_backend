@@ -1,4 +1,3 @@
-// services/hlsStreamProcessor.js - HLS Stream Processor for UB Traffic cameras
 const axios = require('axios');
 const { Parser } = require('m3u8-parser');
 const ffmpeg = require('fluent-ffmpeg');
@@ -20,11 +19,6 @@ class HLSStreamProcessor {
     }
   }
 
-  /**
-   * Parse HLS master playlist and get chunklist URL
-   * @param {string} playlistUrl - Master playlist URL
-   * @returns {Promise<string>} Chunklist URL
-   */
   async getMasterPlaylist(playlistUrl) {
     try {
       logger.info(`Fetching master playlist: ${playlistUrl}`);
@@ -35,7 +29,6 @@ class HLSStreamProcessor {
 
       const manifest = parser.manifest;
 
-      // Get the first stream variant (or you can choose based on bandwidth/resolution)
       if (manifest.playlists && manifest.playlists.length > 0) {
         const chunklistUri = manifest.playlists[0].uri;
         const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/'));
@@ -47,7 +40,6 @@ class HLSStreamProcessor {
         return chunklistUrl;
       }
 
-      // If no playlists, assume this IS the chunklist
       return playlistUrl;
     } catch (error) {
       logger.error(`Error fetching master playlist: ${error.message}`);
@@ -55,12 +47,6 @@ class HLSStreamProcessor {
     }
   }
 
-  /**
-   * Parse chunklist and get media segment URLs
-   * @param {string} chunklistUrl - Chunklist URL
-   * @param {number} count - Number of segments to fetch
-   * @returns {Promise<Array<string>>} Media segment URLs
-   */
   async getMediaSegments(chunklistUrl, count = 33) {
     try {
       logger.info(`Fetching chunklist: ${chunklistUrl}`);
@@ -76,7 +62,6 @@ class HLSStreamProcessor {
         throw new Error('No segments found in chunklist');
       }
 
-      // Get the last 'count' segments (most recent)
       const segments = manifest.segments.slice(-count);
       const segmentUrls = segments.map(segment => {
         const uri = segment.uri;
@@ -91,12 +76,6 @@ class HLSStreamProcessor {
     }
   }
 
-  /**
-   * Download media segments to temp directory
-   * @param {Array<string>} segmentUrls - Array of segment URLs
-   * @param {string} cameraId - Camera ID for naming
-   * @returns {Promise<Array<string>>} Local file paths
-   */
   async downloadSegments(segmentUrls, cameraId) {
     const timestamp = Date.now();
     const cameraDir = path.join(this.tempDir, `camera_${cameraId}_${timestamp}`);
@@ -123,7 +102,6 @@ class HLSStreamProcessor {
         localPaths.push(localPath);
       } catch (error) {
         logger.error(`Failed to download segment ${i}: ${error.message}`);
-        // Continue with other segments
       }
     }
 
@@ -131,12 +109,6 @@ class HLSStreamProcessor {
     return { directory: cameraDir, segments: localPaths };
   }
 
-  /**
-   * Concatenate TS segments into a single MP4 video
-   * @param {Array<string>} segmentPaths - Array of segment file paths
-   * @param {string} outputPath - Output MP4 file path
-   * @returns {Promise<string>} Output file path
-   */
   async concatenateSegments(segmentPaths, outputPath) {
     return new Promise((resolve, reject) => {
       if (segmentPaths.length === 0) {
@@ -145,7 +117,6 @@ class HLSStreamProcessor {
 
       logger.info(`Concatenating ${segmentPaths.length} segments into ${outputPath}`);
 
-      // Create concat file list for ffmpeg
       const concatFile = outputPath.replace('.mp4', '_concat.txt');
       const concatContent = segmentPaths
         .map(p => `file '${p.replace(/\\/g, '/')}'`)
@@ -156,8 +127,8 @@ class HLSStreamProcessor {
         .input(concatFile)
         .inputOptions(['-f concat', '-safe 0'])
         .outputOptions([
-          '-c copy',  // Copy codec (fast, no re-encoding)
-          '-bsf:a aac_adtstoasc'  // Fix AAC audio
+          '-c copy',  
+          '-bsf:a aac_adtstoasc'  
         ])
         .output(outputPath)
         .on('start', (commandLine) => {
@@ -168,7 +139,6 @@ class HLSStreamProcessor {
         })
         .on('end', () => {
           logger.info(`✅ Video created: ${outputPath}`);
-          // Clean up concat file
           fs.unlinkSync(concatFile);
           resolve(outputPath);
         })
@@ -180,11 +150,6 @@ class HLSStreamProcessor {
     });
   }
 
-  /**
-   * Get video duration in seconds
-   * @param {string} videoPath - Path to video file
-   * @returns {Promise<number>} Duration in seconds
-   */
   async getVideoDuration(videoPath) {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(videoPath, (err, metadata) => {
@@ -196,47 +161,32 @@ class HLSStreamProcessor {
     });
   }
 
-  /**
-   * Process HLS stream: download 5min30sec of video
-   * @param {string} playlistUrl - HLS playlist URL
-   * @param {string} cameraId - Camera ID
-   * @param {number} durationSeconds - Desired duration (default 330 = 5m30s)
-   * @returns {Promise<Object>} { videoPath, duration, segmentCount }
-   */
   async processStream(playlistUrl, cameraId, durationSeconds = 330) {
     try {
       logger.info(`📹 Processing HLS stream for camera ${cameraId}`);
       logger.info(`Target duration: ${durationSeconds} seconds (${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s)`);
 
-      // Step 1: Get chunklist URL from master playlist
       const chunklistUrl = await this.getMasterPlaylist(playlistUrl);
 
-      // Step 2: Calculate number of segments needed
-      // Each segment is typically 10 seconds
       const segmentDuration = 10;
       const segmentCount = Math.ceil(durationSeconds / segmentDuration);
 
       logger.info(`Fetching ${segmentCount} segments (${segmentDuration}s each)`);
 
-      // Step 3: Get media segment URLs
       const segmentUrls = await this.getMediaSegments(chunklistUrl, segmentCount);
 
-      // Step 4: Download segments
       const { directory, segments } = await this.downloadSegments(segmentUrls, cameraId);
 
       if (segments.length === 0) {
         throw new Error('No segments were downloaded');
       }
 
-      // Step 5: Concatenate segments into single video
       const timestamp = Date.now();
       const outputPath = path.join(directory, `camera_${cameraId}_${timestamp}.mp4`);
       await this.concatenateSegments(segments, outputPath);
 
-      // Step 6: Get actual video duration
       const actualDuration = await this.getVideoDuration(outputPath);
 
-      // Step 7: Clean up individual segment files
       logger.info('Cleaning up segment files...');
       for (const segmentPath of segments) {
         try {
@@ -261,10 +211,6 @@ class HLSStreamProcessor {
     }
   }
 
-  /**
-   * Clean up temp directory for camera
-   * @param {string} directory - Directory to clean up
-   */
   async cleanupDirectory(directory) {
     try {
       if (fs.existsSync(directory)) {
@@ -276,12 +222,6 @@ class HLSStreamProcessor {
     }
   }
 
-  /**
-   * Store video metadata in Redis (temporary storage)
-   * @param {string} cameraId - Camera ID
-   * @param {Object} videoData - Video metadata
-   * @param {number} ttl - Time to live in seconds (default 1 hour)
-   */
   async storeVideoMetadata(cameraId, videoData, ttl = 3600) {
     const key = `camera:${cameraId}:video:${Date.now()}`;
     await this.redis.setex(key, ttl, JSON.stringify(videoData));
@@ -289,11 +229,6 @@ class HLSStreamProcessor {
     return key;
   }
 
-  /**
-   * Get video metadata from Redis
-   * @param {string} key - Redis key
-   * @returns {Promise<Object|null>}
-   */
   async getVideoMetadata(key) {
     const data = await this.redis.get(key);
     return data ? JSON.parse(data) : null;

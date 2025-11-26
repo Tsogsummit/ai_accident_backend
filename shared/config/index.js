@@ -1,14 +1,9 @@
-// shared/config/index.js
-// Нийтлэг тохиргоо - бүх сервисүүд ашиглана
-
 require('dotenv').config();
 
 module.exports = {
-  // Server
   env: process.env.NODE_ENV || 'development',
   port: process.env.PORT || 3000,
   
-  // Database
   database: {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),
@@ -20,7 +15,6 @@ module.exports = {
     connectionTimeout: parseInt(process.env.DB_CONNECTION_TIMEOUT || '2000'),
   },
 
-  // Redis
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
@@ -32,14 +26,12 @@ module.exports = {
     }
   },
 
-  // JWT
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
   },
 
-  // Google Cloud
   gcp: {
     projectId: process.env.GCP_PROJECT_ID,
     keyFilename: process.env.GCP_KEY_FILE || './gcp-key.json',
@@ -50,49 +42,42 @@ module.exports = {
     }
   },
 
-  // Firebase
   firebase: {
     serverKey: process.env.FCM_SERVER_KEY,
     databaseURL: process.env.FIREBASE_DATABASE_URL,
   },
 
-  // API Rate Limiting
   rateLimit: {
-    windowMs: 60 * 1000, // 1 минут
-    max: 100, // 100 хүсэлт/минут
+    windowMs: 60 * 1000,
+    max: 100,
     message: 'Хэт олон хүсэлт илгээлээ, түр хүлээнэ үү',
     standardHeaders: true,
     legacyHeaders: false,
   },
 
-  // Video upload limiting
   videoUploadLimit: {
-    windowMs: 24 * 60 * 60 * 1000, // 1 өдөр
-    max: 10, // 10 бичлэг/өдөр
+    windowMs: 24 * 60 * 60 * 1000, 
+    max: 10,
     message: 'Өдөрт зөвшөөрөгдөх бичлэгийн тоо хэтэрлээ'
   },
 
-  // File upload
   upload: {
-    maxFileSize: 50 * 1024 * 1024, // 50MB
+    maxFileSize: 50 * 1024 * 1024,
     allowedVideoTypes: ['video/mp4', 'video/quicktime', 'video/x-msvideo'],
     allowedImageTypes: ['image/jpeg', 'image/png', 'image/webp'],
   },
 
-  // Camera settings
   camera: {
-    streamInterval: 5 * 60 * 1000, // 5 минут
-    streamDuration: 30, // 30 секунд
-    healthCheckInterval: 60 * 1000, // 1 минут
+    streamInterval: 5 * 60 * 1000, 
+    streamDuration: 30,
+    healthCheckInterval: 60 * 1000,
   },
 
-  // Notification settings
   notification: {
-    defaultRadius: 5000, // 5км метрээр
-    batchSize: 100, // Нэг удаад илгээх мэдэгдлийн тоо
+    defaultRadius: 5000, 
+    batchSize: 100, 
   },
 
-  // Service URLs (for inter-service communication)
   services: {
     user: process.env.USER_SERVICE_URL || 'http://localhost:3001',
     accident: process.env.ACCIDENT_SERVICE_URL || 'http://localhost:3002',
@@ -104,20 +89,17 @@ module.exports = {
     camera: process.env.CAMERA_SERVICE_URL || 'http://localhost:3008',
   },
 
-  // AI Detection
   ai: {
     confidenceThreshold: parseFloat(process.env.AI_CONFIDENCE_THRESHOLD || '0.5'),
     minAccidentFrameRatio: parseFloat(process.env.AI_MIN_ACCIDENT_FRAME_RATIO || '0.3'),
-    frameExtractionInterval: parseInt(process.env.AI_FRAME_INTERVAL || '2'), // секунд
+    frameExtractionInterval: parseInt(process.env.AI_FRAME_INTERVAL || '2'), 
   },
 
-  // Logging
   logging: {
     level: process.env.LOG_LEVEL || 'info',
     format: process.env.LOG_FORMAT || 'json',
   },
 
-  // CORS
   cors: {
     origin: process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',') 
@@ -127,37 +109,31 @@ module.exports = {
     allowedHeaders: ['Content-Type', 'Authorization'],
   },
 
-  // Validation
   validation: {
     passwordMinLength: 6,
     phoneRegex: /^\+976\d{8}$/,
     emailRegex: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   },
 
-  // Cache TTL
   cache: {
-    accidentsList: 5 * 60, // 5 минут
-    userProfile: 15 * 60, // 15 минут
-    cameraList: 10 * 60, // 10 минут
-    notificationSettings: 30 * 60, // 30 минут
+    accidentsList: 5 * 60, 
+    userProfile: 15 * 60, 
+    cameraList: 10 * 60,
+    notificationSettings: 30 * 60,
   },
 
-  // Pagination
   pagination: {
     defaultLimit: 50,
     maxLimit: 100,
   },
 
-  // Status codes
   status: {
     accident: ['reported', 'confirmed', 'resolved', 'false_alarm'],
-    severity: ['minor', 'moderate', 'severe'],
     videoStatus: ['uploading', 'uploaded', 'processing', 'completed', 'failed'],
     userStatus: ['active', 'inactive', 'suspended'],
     cameraStatus: ['active', 'inactive', 'maintenance'],
   },
 
-  // Error messages (Монгол хэл)
   messages: {
     serverError: 'Серверийн алдаа гарлаа',
     notFound: 'Олдсонгүй',

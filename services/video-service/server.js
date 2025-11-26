@@ -17,7 +17,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ Serve uploaded files statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const pool = new Pool({
@@ -45,7 +44,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { userId, latitude, longitude, description } = req.body;
-    const authHeader = req.headers['authorization']; // Get token to pass to accident-service
+    const authHeader = req.headers['authorization']; 
 
     console.log('📹 Video upload started');
     console.log('   userId:', userId);
@@ -75,7 +74,6 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 1. Insert Video Record FIRST (without accident_id initially)
     const videoResult = await client.query(`
       INSERT INTO videos (
         user_id, file_name, file_path, file_size, 
@@ -94,9 +92,8 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     const video = videoResult.rows[0];
     console.log(`✅ Video created: ID=${video.id}`);
 
-    await client.query('COMMIT'); // Commit video so accident-service can see it if needed (though it updates it)
+    await client.query('COMMIT'); 
 
-    // 2. Call Accident Service to Create/Deduplicate Accident
     const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
     console.log(`🔄 Calling Accident Service at ${accidentServiceUrl}...`);
 
@@ -108,11 +105,11 @@ app.post('/upload', upload.single('video'), async (req, res) => {
           latitude: parseFloat(latitude),
           longitude: parseFloat(longitude),
           description: description || 'Хэрэглэгчээс бичигдсэн бичлэг',
-          videoId: video.id // Pass the video ID we just created
+          videoId: video.id 
         },
         {
           headers: {
-            'Authorization': authHeader, // Pass the user's token
+            'Authorization': authHeader, 
             'Content-Type': 'application/json'
           }
         }
@@ -129,20 +126,15 @@ app.post('/upload', upload.single('video'), async (req, res) => {
       if (serviceError.response) {
         console.error('   Response:', serviceError.response.data);
       }
-      // Rollback video if accident creation fails? 
-      // Or keep video as "orphaned"? 
-      // Let's delete the video to be safe and consistent.
       await client.query('DELETE FROM videos WHERE id = $1', [video.id]);
       await fs.unlink(req.file.path);
       throw new Error('Осол бүртгэхэд алдаа гарлаа (Accident Service)');
     }
 
-    // 3. Move file to final location
     const finalPath = path.join(__dirname, 'uploads', fileName);
     await fs.rename(file.path, finalPath);
     console.log(`✅ File saved: ${finalPath}`);
 
-    // 4. Trigger AI Detection
     const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai-detection-service:3004';
     const relativeFilePath = fileName;
 
@@ -168,11 +160,10 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     });
 
   } catch (error) {
-    if (client) await client.query('ROLLBACK'); // Just in case
+    if (client) await client.query('ROLLBACK'); 
     console.error('❌ Video upload error:', error);
     if (req.file) {
       try {
-        // Check if file exists before trying to delete (it might have been moved)
         await fs.access(req.file.path).then(() => fs.unlink(req.file.path)).catch(() => { });
       } catch (e) {
         console.error('Failed to delete temp file:', e);

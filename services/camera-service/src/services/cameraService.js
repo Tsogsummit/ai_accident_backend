@@ -1,7 +1,3 @@
-/**
- * Camera Service - Main Logic
- * HLS + RTSP Camera Monitoring
- */
 
 const { pool } = require('../config/database');
 const { captureStream, cleanupTempFiles } = require('./streamService');
@@ -10,11 +6,8 @@ const { HLSStreamProcessor } = require('./hlsProcessor');
 const logger = require('../utils/logger');
 
 let monitoringIntervals = new Map();
-let hlsProcessors = new Map(); // HLS stream processor instances
+let hlsProcessors = new Map(); 
 
-/**
- * Get active cameras from database
- */
 async function getActiveCamerasFromDB() {
   try {
     const result = await pool.query(`
@@ -28,21 +21,14 @@ async function getActiveCamerasFromDB() {
   }
 }
 
-/**
- * Start monitoring a camera
- * @param {Object} camera
- */
 async function startCameraMonitoring(camera) {
   try {
-    // Check camera type
     const isHLS = camera.stream_type === 'hls' ||
       camera.stream_url?.includes('.m3u8');
 
     if (isHLS) {
-      // ✅ HLS Stream (Real-time processing)
       await startHLSMonitoring(camera);
     } else {
-      // ✅ RTSP Stream (Periodic capture)
       await startRTSPMonitoring(camera);
     }
 
@@ -50,41 +36,29 @@ async function startCameraMonitoring(camera) {
 
   } catch (error) {
     logger.error(`Failed to start camera ${camera.id}:`, error);
-    // await updateCameraStatus(camera.id, 'error'); // Status removed
   }
 }
 
-/**
- * Start HLS stream monitoring (continuous)
- */
 async function startHLSMonitoring(camera) {
-  // Check if already running
   if (hlsProcessors.has(camera.id)) {
     logger.warn(`HLS processor already running for camera ${camera.id}`);
     return;
   }
 
-  // Create HLS processor
   const processor = new HLSStreamProcessor(camera);
   hlsProcessors.set(camera.id, processor);
 
-  // Start processing
   await processor.start();
 }
 
-/**
- * Start RTSP stream monitoring (periodic)
- */
 async function startRTSPMonitoring(camera) {
-  const interval = parseInt(process.env.STREAM_INTERVAL) * 1000 || 300000; // Default 5 min
-  const duration = parseInt(process.env.STREAM_DURATION) || 30; // Default 30 sec
+  const interval = parseInt(process.env.STREAM_INTERVAL) * 1000 || 300000;
+  const duration = parseInt(process.env.STREAM_DURATION) || 30;
 
   logger.info(`▶️  RTSP monitoring: ${camera.name} (ID: ${camera.id})`);
 
-  // Initial capture
   captureAndUpload(camera, duration);
 
-  // Set interval for continuous monitoring
   const intervalId = setInterval(() => {
     captureAndUpload(camera, duration);
   }, interval);
@@ -92,27 +66,20 @@ async function startRTSPMonitoring(camera) {
   monitoringIntervals.set(camera.id, intervalId);
 }
 
-/**
- * Stop monitoring a camera
- * @param {number} cameraId
- */
 async function stopCameraMonitoring(cameraId) {
   try {
-    // Stop HLS processor
     const hlsProcessor = hlsProcessors.get(cameraId);
     if (hlsProcessor) {
       await hlsProcessor.stop();
       hlsProcessors.delete(cameraId);
     }
 
-    // Stop RTSP interval
     const intervalId = monitoringIntervals.get(cameraId);
     if (intervalId) {
       clearInterval(intervalId);
       monitoringIntervals.delete(cameraId);
     }
 
-    // Update database
     await pool.query(`
       UPDATE cameras 
       SET is_recording = false, updated_at = NOW()
@@ -126,29 +93,20 @@ async function stopCameraMonitoring(cameraId) {
   }
 }
 
-/**
- * Capture and upload video (RTSP)
- * @param {Object} camera
- * @param {number} duration
- */
 async function captureAndUpload(camera, duration) {
   try {
     logger.info(`📹 Capturing from camera: ${camera.name}`);
 
-    // Update status to recording
     await pool.query(`
       UPDATE cameras 
       SET is_recording = true, updated_at = NOW()
       WHERE id = $1
     `, [camera.id]);
 
-    // Capture stream
     const videoPath = await captureStream(camera, duration);
 
-    // Process and upload
     await processVideo(videoPath, camera);
 
-    // Update status to active
     await pool.query(`
       UPDATE cameras 
       SET is_recording = false, updated_at = NOW()
@@ -158,7 +116,6 @@ async function captureAndUpload(camera, duration) {
   } catch (error) {
     logger.error(`Camera ${camera.id} capture error:`, error);
 
-    // Update status to error
     await pool.query(`
       UPDATE cameras 
       SET is_recording = false, 
@@ -168,9 +125,6 @@ async function captureAndUpload(camera, duration) {
   }
 }
 
-/**
- * Start all active cameras
- */
 async function startAllCameras() {
   try {
     const cameras = await getActiveCamerasFromDB();
@@ -180,11 +134,9 @@ async function startAllCameras() {
     for (const camera of cameras) {
       await startCameraMonitoring(camera);
 
-      // Rate limiting: хэд хэдэн камер эхлүүлэхэд 2 секунд хүлээх
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    // Cleanup task every hour
     setInterval(() => {
       cleanupTempFiles(60);
     }, 3600000);
@@ -196,24 +148,18 @@ async function startAllCameras() {
   }
 }
 
-/**
- * Stop all cameras
- */
 async function stopAllCameras() {
   try {
-    // Stop HLS processors
     for (const [cameraId, processor] of hlsProcessors) {
       await processor.stop();
     }
     hlsProcessors.clear();
 
-    // Stop RTSP intervals
     for (const [cameraId, intervalId] of monitoringIntervals) {
       clearInterval(intervalId);
     }
     monitoringIntervals.clear();
 
-    // Update database
     await pool.query(`
       UPDATE cameras 
       SET is_recording = false, updated_at = NOW()
@@ -227,9 +173,6 @@ async function stopAllCameras() {
   }
 }
 
-/**
- * Get monitoring status
- */
 async function getMonitoringStatus() {
   try {
     const result = await pool.query(`
@@ -251,7 +194,6 @@ async function getMonitoringStatus() {
       type: camera.stream_type,
       isOnline: camera.is_online,
       isRecording: camera.is_recording,
-      // status: camera.status, // Removed
       lastFrameTime: camera.last_frame_time,
       framesCaptured: camera.frames_captured,
       totalFrames: camera.total_frames || 0,
@@ -268,14 +210,10 @@ async function getMonitoringStatus() {
   }
 }
 
-/**
- * Restart camera monitoring
- */
 async function restartCamera(cameraId) {
   try {
     await stopCameraMonitoring(cameraId);
 
-    // Wait a bit
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     const result = await pool.query(`

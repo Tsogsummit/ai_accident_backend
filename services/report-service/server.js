@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-// Try to load from root .env if not found in current dir
 const rootEnvPath = path.resolve(__dirname, '../../.env');
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
@@ -22,7 +21,6 @@ const app = express();
 const PORT = process.env.PORT || 3007;
 app.use(express.json());
 
-// Configure Multer for temporary storage
 const upload = multer({ dest: 'uploads/' });
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
@@ -213,7 +211,6 @@ app.get('/reports/statistics', async (req, res) => {
     }
     const [
       totalAccidents,
-      accidentsBySeverity,
       accidentsByStatus,
       accidentsBySource,
       topLocations,
@@ -224,12 +221,6 @@ app.get('/reports/statistics', async (req, res) => {
         SELECT COUNT(*) as count
         FROM accidents
         WHERE accident_time >= $1 AND accident_time <= $2
-      `, [start.toISOString(), end.toISOString()]),
-      pool.query(`
-        SELECT severity, COUNT(*) as count
-        FROM accidents
-        WHERE accident_time >= $1 AND accident_time <= $2
-        GROUP BY severity
       `, [start.toISOString(), end.toISOString()]),
       pool.query(`
         SELECT status, COUNT(*) as count
@@ -255,12 +246,9 @@ app.get('/reports/statistics', async (req, res) => {
         LIMIT 10
       `, [start.toISOString(), end.toISOString()]),
       pool.query(`
-        SELECT 
+        SELECT
           DATE(accident_time) as date,
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE severity = 'severe') as severe,
-          COUNT(*) FILTER (WHERE severity = 'moderate') as moderate,
-          COUNT(*) FILTER (WHERE severity = 'minor') as minor
+          COUNT(*) as total
         FROM accidents
         WHERE accident_time >= $1 AND accident_time <= $2
         GROUP BY DATE(accident_time)
@@ -288,10 +276,6 @@ app.get('/reports/statistics', async (req, res) => {
         },
         summary: {
           totalAccidents: parseInt(totalAccidents.rows[0].count),
-          bySeverity: accidentsBySeverity.rows.reduce((acc, row) => {
-            acc[row.severity] = parseInt(row.count);
-            return acc;
-          }, {}),
           byStatus: accidentsByStatus.rows.reduce((acc, row) => {
             acc[row.status] = parseInt(row.count);
             return acc;
@@ -528,7 +512,6 @@ app.get('/reports/export', async (req, res) => {
             a.latitude,
             a.longitude,
             a.description,
-            a.severity,
             a.status,
             a.source,
             a.accident_time,
@@ -606,7 +589,6 @@ app.get('/reports/export', async (req, res) => {
   }
 });
 
-// Middleware to extract token for forwarding (and basic validation)
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -616,11 +598,8 @@ const authenticateToken = (req, res, next) => {
       error: 'Нэвтрэх шаардлагатай'
     });
   }
-  // We just pass it through, but we could verify it if we shared the secret.
-  // For now, we trust the gateway or just forward it to accident-service which will verify.
-  // But to be safe and consistent with other services:
   const jwt = require('jsonwebtoken');
-  const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+  const JWT_SECRET = process.env.JWT_SECRET;
   console.log('🔑 Report Service JWT Secret:', JWT_SECRET.substring(0, 5) + '...');
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
@@ -636,7 +615,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ✅ Get user's image submissions (history)
 app.get('/reports/submissions',
   authenticateToken,
   async (req, res) => {
@@ -656,7 +634,6 @@ app.get('/reports/submissions',
         LIMIT $2 OFFSET $3
       `, [userId, parseInt(limit), parseInt(offset)]);
 
-      // Get total count
       const countResult = await pool.query(
         'SELECT COUNT(*) FROM image_submissions WHERE user_id = $1',
         [userId]
@@ -700,8 +677,7 @@ app.post('/reports/image',
 
       console.log(`📸 Processing image report in Report Service`);
 
-      // 1. Save to image_submissions table FIRST (before AI analysis)
-      const imageUrl = req.file.path; // In production, upload to cloud storage
+      const imageUrl = req.file.path; 
       const insertResult = await pool.query(`
         INSERT INTO image_submissions (user_id, latitude, longitude, description, image_url, status)
         VALUES ($1, $2, $3, $4, $5, 'analyzing')
@@ -711,7 +687,6 @@ app.post('/reports/image',
       submissionId = insertResult.rows[0].id;
       console.log(`📝 Created image_submission #${submissionId}`);
 
-      // 2. Call Gemini Service for AI analysis
       const geminiServiceUrl = process.env.GEMINI_SERVICE_URL || 'http://gemini-service:3010';
       console.log(`🔄 Calling Gemini Service at ${geminiServiceUrl}...`);
 
@@ -737,7 +712,6 @@ app.post('/reports/image',
       } catch (geminiErr) {
         console.error('❌ Gemini Service Error:', geminiErr.message);
 
-        // Update submission with error
         await pool.query(`
           UPDATE image_submissions
           SET status = 'error', error_message = $1, analyzed_at = NOW()
@@ -750,7 +724,6 @@ app.post('/reports/image',
         throw new Error('AI шалгалт амжилтгүй боллоо: ' + (geminiErr.response?.data?.error || geminiErr.message));
       }
 
-      // 3. Update submission with AI results
       await pool.query(`
         UPDATE image_submissions
         SET ai_analyzed = true,
@@ -770,14 +743,12 @@ app.post('/reports/image',
         submissionId
       ]);
 
-      // 4. If Accident -> Create accident in Accident Service
       if (analysis.isAccident) {
         console.log('🚨 Accident detected! Creating accident...');
 
         const accidentServiceUrl = process.env.ACCIDENT_SERVICE_URL || 'http://accident-service:3002';
         const formData = new FormData();
 
-        // Re-attach file
         formData.append('image', fs.createReadStream(req.file.path), {
           filename: req.file.originalname,
           contentType: req.file.mimetype,
@@ -787,7 +758,6 @@ app.post('/reports/image',
         formData.append('longitude', longitude);
         formData.append('description', analysis.description || description || '');
 
-        // Pass analysis data to skip re-analysis
         formData.append('skipAnalysis', 'true');
         formData.append('analysisData', JSON.stringify(analysis));
         formData.append('submissionId', submissionId.toString());
@@ -804,7 +774,6 @@ app.post('/reports/image',
           }
         );
 
-        // Update submission with accident_id
         if (response.data.success && response.data.data?.id) {
           await pool.query(`
             UPDATE image_submissions
@@ -813,20 +782,17 @@ app.post('/reports/image',
           `, [response.data.data.id, submissionId]);
         }
 
-        // Cleanup temp file
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         res.status(response.status).json(response.data);
 
       } else {
-        // 5. Not Accident -> Return result (no accident created)
         console.log('✅ No accident detected. Image saved to submissions.');
 
-        // Cleanup temp file
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         res.json({
-          success: true, // Changed to true - submission was successful
+          success: true, 
           message: 'Зураг шалгагдлаа. Осол илрээгүй.',
           data: {
             submissionId: submissionId,
@@ -843,7 +809,6 @@ app.post('/reports/image',
     } catch (error) {
       console.error('Report image error:', error.message);
 
-      // Cleanup temp file
       if (req.file && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
@@ -861,7 +826,6 @@ app.post('/reports/image',
     }
   });
 
-// Health check endpoint
 app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',

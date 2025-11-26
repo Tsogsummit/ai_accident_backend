@@ -1,33 +1,21 @@
-/**
- * Upload Service - Google Cloud Storage
- */
-
 const { Storage } = require('@google-cloud/storage');
 const { PubSub } = require('@google-cloud/pubsub');
 const path = require('path');
 const fs = require('fs').promises;
 const logger = require('../utils/logger');
 
-// Initialize GCS
 const storage = new Storage({
   keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
 });
 
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
-// Initialize Pub/Sub
 const pubsub = new PubSub({
   keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
 });
 
 const topic = pubsub.topic(process.env.PUBSUB_TOPIC);
 
-/**
- * Upload video to Google Cloud Storage
- * @param {string} filePath - Local file path
- * @param {Object} camera - Camera info
- * @returns {Promise<Object>}
- */
 async function uploadVideo(filePath, camera) {
   const fileName = path.basename(filePath);
   const destination = `videos/camera_${camera.id}/${fileName}`;
@@ -63,10 +51,6 @@ async function uploadVideo(filePath, camera) {
   }
 }
 
-/**
- * Publish message to Pub/Sub
- * @param {Object} data - Message data
- */
 async function publishMessage(data) {
   try {
     const messageId = await topic.publishMessage({
@@ -81,17 +65,10 @@ async function publishMessage(data) {
   }
 }
 
-/**
- * Process and upload video
- * @param {string} filePath - Local file path
- * @param {Object} camera - Camera info
- */
 async function processVideo(filePath, camera) {
   try {
-    // Upload to GCS
     const uploadResult = await uploadVideo(filePath, camera);
 
-    // Publish to Pub/Sub for AI processing
     await publishMessage({
       videoUrl: uploadResult.url,
       cameraId: camera.id,
@@ -102,7 +79,6 @@ async function processVideo(filePath, camera) {
       fileName: uploadResult.fileName
     });
 
-    // Delete local file
     await fs.unlink(filePath);
     logger.debug(`🗑️  Local file deleted: ${filePath}`);
 

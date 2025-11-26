@@ -47,7 +47,7 @@ const redis = new Redis({
 });
 redis.on('error', (err) => console.error('Redis error:', err));
 redis.on('connect', () => console.log('✅ Redis connected'));
-const JWT_SECRET = process.env.JWT_SECRET || 'your-admin-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = 12;
 const CAMERA_SERVICE_URL = process.env.CAMERA_SERVICE_URL || 'http://camera-service:3009';
 const authenticateAdmin = (req, res, next) => {

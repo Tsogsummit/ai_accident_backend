@@ -1,24 +1,12 @@
-/**
- * Stream Service - FFmpeg Video Capture
- * HLS + RTSP support
- */
-
 const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs').promises;
 const logger = require('../utils/logger');
 
-// FFmpeg path configuration
 if (process.env.FFMPEG_PATH) {
   ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
 }
 
-/**
- * Capture stream from camera
- * @param {Object} camera - Camera configuration
- * @param {number} duration - Duration in seconds
- * @returns {Promise<string>} - Path to captured video
- */
 async function captureStream(camera, duration = 30) {
   const timestamp = Date.now();
   const outputPath = path.join(
@@ -34,13 +22,11 @@ async function captureStream(camera, duration = 30) {
   return new Promise((resolve, reject) => {
     const command = ffmpeg(camera.streamUrl);
 
-    // ✅ Input options based on stream type
     if (isHLS) {
-      // HLS Stream (UB Traffic)
       const inputOptions = [
         '-allowed_extensions', 'ALL',
         '-protocol_whitelist', 'file,http,https,tcp,tls',
-        '-timeout', '5000000',          // ✅ FIXED: -timeout instead of -stimeout
+        '-timeout', '5000000',     
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5'
@@ -50,10 +36,9 @@ async function captureStream(camera, duration = 30) {
       logger.debug(`FFmpeg HLS input: ${inputOptions.join(' ')}`);
       
     } else if (isRTSP) {
-      // RTSP Stream (traditional IP cameras)
       const inputOptions = [
         '-rtsp_transport', 'tcp',
-        '-timeout', '5000000',          // ✅ FIXED: -timeout instead of -stimeout
+        '-timeout', '5000000',        
         '-analyzeduration', '5000000',
         '-probesize', '5000000'
       ];
@@ -65,14 +50,13 @@ async function captureStream(camera, duration = 30) {
       logger.warn(`Unknown stream type for camera ${camera.id}`);
     }
 
-    // Output options (same for all types)
     command
       .outputOptions([
-        '-c:v', 'libx264',           // Video codec
-        '-preset', 'ultrafast',      // Encoding speed
-        '-crf', '28',                // Quality (lower = better)
-        '-t', duration.toString(),   // Duration
-        '-movflags', '+faststart'    // Web optimization
+        '-c:v', 'libx264',           
+        '-preset', 'ultrafast',     
+        '-crf', '28',               
+        '-t', duration.toString(),  
+        '-movflags', '+faststart'    
       ])
       .output(outputPath)
       .on('start', (commandLine) => {
@@ -91,7 +75,7 @@ async function captureStream(camera, duration = 30) {
           resolve(outputPath);
         } catch (error) {
           logger.error(`Error checking file: ${error.message}`);
-          resolve(outputPath); // Still resolve with path
+          resolve(outputPath); 
         }
       })
       .on('error', (err, stdout, stderr) => {
@@ -102,16 +86,10 @@ async function captureStream(camera, duration = 30) {
         reject(err);
       });
 
-    // Start recording
     command.run();
   });
 }
 
-/**
- * Get stream info
- * @param {string} streamUrl
- * @returns {Promise<Object>}
- */
 async function getStreamInfo(streamUrl) {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(streamUrl, (err, metadata) => {
@@ -124,10 +102,6 @@ async function getStreamInfo(streamUrl) {
   });
 }
 
-/**
- * Clean up old temporary files
- * @param {number} olderThanMinutes - Delete files older than X minutes
- */
 async function cleanupTempFiles(olderThanMinutes = 60) {
   const tempDir = process.env.TEMP_DIR || '/tmp';
   const now = Date.now();
@@ -158,11 +132,7 @@ async function cleanupTempFiles(olderThanMinutes = 60) {
   }
 }
 
-/**
- * Test camera connectivity
- * @param {Object} camera
- * @returns {Promise<boolean>}
- */
+
 async function testCameraConnection(camera) {
   try {
     logger.debug(`Testing camera: ${camera.name}`);
