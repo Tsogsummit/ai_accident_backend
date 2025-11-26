@@ -26,6 +26,10 @@ secrets.yaml
 *api_key*
 *apikey*
 *API_KEY*
+*gemini_key*
+*gemini_api_key*
+google_api_key.txt
+gemini_api_key.txt
 
 # ==========================================
 # Node.js

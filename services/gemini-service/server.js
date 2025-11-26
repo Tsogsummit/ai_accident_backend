@@ -115,6 +115,16 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
+
+        // Check for 403 Forbidden (API Key issue)
+        if (error.message.includes('403') || error.message.includes('Forbidden') || error.message.includes('API key')) {
+            return res.status(500).json({
+                success: false,
+                error: 'AI Service Error: API Key Invalid or Leaked. Please contact admin.',
+                details: error.message
+            });
+        }
+
         res.status(500).json({
             success: false,
             error: error.message,
