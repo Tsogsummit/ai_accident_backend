@@ -111,7 +111,7 @@ temp/
 # Docker
 # ==========================================
 docker-compose.override.yml
-.dockerignore
+
 
 # ==========================================
 # Media & Uploads
