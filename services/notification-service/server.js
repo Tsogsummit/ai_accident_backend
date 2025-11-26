@@ -1,12 +1,10 @@
 const express = require('express');
 const { Pool } = require('pg');
 const Redis = require('ioredis');
-const admin = require('firebase-admin');
 const { Server } = require('socket.io');
 const http = require('http');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -47,24 +45,6 @@ const redis = new Redis({
 redis.on('error', (err) => {
   console.error('Redis error:', err);
 });
-let firebaseInitialized = false;
-try {
-  const credentialsPath = process.env.FIREBASE_CREDENTIALS;
-  if (credentialsPath && fs.existsSync(credentialsPath)) {
-    const serviceAccount = require(credentialsPath);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      databaseURL: process.env.FIREBASE_DATABASE_URL
-    });
-    firebaseInitialized = true;
-    console.log(' Firebase Admin SDK initialized successfully');
-  } else {
-    console.warn('  Firebase credentials file not found - Push notifications disabled');
-  }
-} catch (error) {
-  console.error(' Firebase initialization error:', error.message);
-  console.warn('  Push notifications will not work');
-}
 const userSockets = new Map();
 io.on('connection', (socket) => {
   console.log('Client холбогдсон:', socket.id);
@@ -242,7 +222,6 @@ app.post('/notifications/send', async (req, res) => {
       });
     }
     const notifications = [];
-    const fcmTokens = [];
     const socketsSent = [];
     for (const userId of userIds) {
       try {
@@ -260,75 +239,17 @@ app.post('/notifications/send', async (req, res) => {
           });
           socketsSent.push(userId);
         }
-        const tokenResult = await redis.get(`fcm_token:${userId}`);
-        if (tokenResult) {
-          fcmTokens.push({
-            token: tokenResult,
-            userId
-          });
-        }
       } catch (err) {
         console.error(`Failed to send notification to user ${userId}:`, err);
       }
     }
-    let fcmSuccess = 0;
-    let fcmFailure = 0;
-    if (firebaseInitialized && fcmTokens.length > 0) {
-      try {
-        const tokens = fcmTokens.map(t => t.token);
-        const fcmMessage = {
-          notification: {
-            title,
-            body: message
-          },
-          data: {
-            type: type || 'general',
-            accidentId: accidentId?.toString() || '',
-            ...Object.fromEntries(
-              Object.entries(data).map(([k, v]) => [k, String(v)])
-            )
-          }
-        };
-        const chunks = [];
-        for (let i = 0; i < tokens.length; i += 500) {
-          chunks.push(tokens.slice(i, i + 500));
-        }
-        for (const chunk of chunks) {
-          const response = await admin.messaging().sendMulticast({
-            ...fcmMessage,
-            tokens: chunk
-          });
-          fcmSuccess += response.successCount;
-          fcmFailure += response.failureCount;
-          if (response.failureCount > 0) {
-            response.responses.forEach((resp, idx) => {
-              if (!resp.success) {
-                const error = resp.error;
-                if (error.code === 'messaging/invalid-registration-token' ||
-                  error.code === 'messaging/registration-token-not-registered') {
-                  const userId = fcmTokens[idx]?.userId;
-                  if (userId) {
-                    redis.del(`fcm_token:${userId}`).catch(console.error);
-                  }
-                }
-              }
-            });
-          }
-        }
-        console.log(` FCM: ${fcmSuccess} success, ${fcmFailure} failed`);
-      } catch (fcmError) {
-        console.error('FCM error:', fcmError);
-      }
-    }
     res.json({
       success: true,
-      message: 'Мэдэгдэл илгээгдлээ',
+      message: 'Notification sent successfully',
       stats: {
         total: userIds.length,
         databaseSaved: notifications.length,
-        socketSent: socketsSent.length,
-        fcmSuccess,
-        fcmFailure
+        socketSent: socketsSent.length
       },
       notifications
     });
@@ -338,56 +259,6 @@ app.post('/notifications/send', async (req, res) => {
       success: false,
       error: 'Мэдэгдэл илгээхэд алдаа гарлаа',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-app.post('/notifications/register-token', async (req, res) => {
-  try {
-    const { userId, fcmToken } = req.body;
-    if (!userId || !fcmToken) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId болон fcmToken шаардлагатай'
-      });
-    }
-    if (typeof fcmToken !== 'string' || fcmToken.length < 20) {
-      return res.status(400).json({
-        success: false,
-        error: 'Буруу FCM токен формат'
-      });
-    }
-    await redis.setex(`fcm_token:${userId}`, 30 * 24 * 60 * 60, fcmToken);
-    res.json({
-      success: true,
-      message: 'FCM токен бүртгэгдлээ'
-    });
-  } catch (error) {
-    console.error('Register token error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Алдаа гарлаа'
-    });
-  }
-});
-app.delete('/notifications/unregister-token', async (req, res) => {
-  try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId шаардлагатай'
-      });
-    }
-    await redis.del(`fcm_token:${userId}`);
-    res.json({
-      success: true,
-      message: 'FCM токен устгагдлаа'
-    });
-  } catch (error) {
-    console.error('Unregister token error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Алдаа гарлаа'
     });
   }
 });
@@ -462,7 +333,6 @@ app.get('/health', async (req, res) => {
   const health = {
     status: 'healthy',
     service: 'notification-service',
-    firebase: firebaseInitialized,
     activeConnections: userSockets.size,
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
@@ -494,9 +364,8 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 server.listen(PORT, () => {
-  console.log(` Notification Service запущен на порту ${PORT}`);
-  console.log(` Socket.IO готов для WebSocket соединений`);
-  console.log(` Firebase: ${firebaseInitialized ? 'готов' : 'не настроен'}`);
-  console.log(` Active connections: ${userSockets.size}`);
+  console.log(`Notification Service started on port ${PORT}`);
+  console.log(`Socket.IO ready for WebSocket connections`);
+  console.log(`Active connections: ${userSockets.size}`);
 });
 module.exports = app;
