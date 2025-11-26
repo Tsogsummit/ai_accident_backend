@@ -22,7 +22,7 @@ COPY . .
 # Copy models
 RUN mkdir -p /app/models
 COPY models/yolov8m.pt /app/models/yolov8m.pt
-COPY models/accident_classifier.pt /app/models/accident_classifier.pt
+
 
 ENV PORT=3004 \
     MODEL_PATH=/app/models/yolov8m.pt \

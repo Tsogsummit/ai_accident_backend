@@ -469,13 +469,6 @@ class VideoDetectionRequest(BaseModel):
     longitude: float = Field(..., ge=-180, le=180)
     description: Optional[str] = None
 
-class ImageDetectionRequest(BaseModel):
-    cameraId: int
-    frameId: int
-    timestamp: str
-    image: str
-    metadata: Optional[Dict] = None
-
 app = FastAPI(title="AI Detection - Optimized", version="2.1.0")
 
 app.add_middleware(
@@ -779,98 +772,6 @@ async def process_video_detection(request: VideoDetectionRequest, video_path: st
                 except Exception:
                     pass
 
-@app.get("/health")
-async def health():
-    return {
-        "service": "ai-detection-service",
-        "version": "3.0.0-yolov8m",
-        "model": "YOLOv8m (Medium - Higher Accuracy)",
-        "model_path": config.MODEL_PATH,
-        "timestamp": datetime.now().isoformat(),
-        "config": {
-            "confidence_threshold": config.MODEL_CONFIDENCE,
-            "iou_threshold": config.IOU_THRESHOLD,
-            "max_detections": config.MAX_DET,
-            "frame_interval": config.FRAME_INTERVAL
-        },
-        "improvements": [
-            "YOLOv8m model (better accuracy than nano)",
-            "Lower confidence threshold (0.30 vs 0.35)",
-            "Optimized IOU threshold (0.45)",
-            "Higher max detections (300)",
-            "Improved accident detection logic",
-            "Better collision detection sensitivity"
-        ]
-    }
-
-@app.post("/analyze/image")
-async def analyze_image_endpoint(image: UploadFile = File(...)):
-    try:
-        contents = await image.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            raise HTTPException(status_code=400, detail="Invalid image file")
-
-        # Run YOLO detection
-        results = model(
-            img,
-            conf=config.MODEL_CONFIDENCE,
-            iou=config.IOU_THRESHOLD,
-            max_det=config.MAX_DET,
-            verbose=False
-        )
-        
-        detections = []
-        vehicle_count = 0
-        
-        for result in results:
-            boxes = result.boxes
-            if len(boxes) == 0:
-                continue
-                
-            for box, conf, cls in zip(boxes.xyxy.cpu().numpy(), boxes.conf.cpu().numpy(), boxes.cls.cpu().numpy()):
-                class_name = model.names[int(cls)]
-                if class_name in OptimizedVehicleTracker.VEHICLE_CLASSES:
-                    vehicle_count += 1
-                    detections.append({
-                        "bbox": box.tolist(),
-                        "confidence": float(conf),
-                        "class": class_name
-                    })
-
-        has_accident = False
-        confidence = 0.0
-        
-        if len(detections) >= 2:
-            # Check for proximity
-            positions = [((d['bbox'][0] + d['bbox'][2])/2, (d['bbox'][1] + d['bbox'][3])/2) for d in detections]
-            close_pairs = 0
-            for i in range(len(positions)):
-                for j in range(i + 1, len(positions)):
-                    dist = euclidean(positions[i], positions[j])
-                    if dist < 80.0: # Clustering distance
-                        close_pairs += 1
-            
-            if close_pairs > 0:
-                has_accident = True
-                confidence = min(0.9, 0.5 + close_pairs * 0.1)
-        
-        return {
-            "success": True,
-            "data": {
-                "hasAccident": has_accident,
-                "confidence": confidence,
-                "vehicleCount": vehicle_count,
-                "detections": detections
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Image analysis failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/detect/video")
 async def detect_video_endpoint(request: VideoDetectionRequest, background_tasks: BackgroundTasks):
     try:
@@ -943,7 +844,7 @@ def health_check():
         "status": "healthy",
         "service": "ai-detection-service",
         "model_loaded": model is not None,
-        "model_path": MODEL_PATH
+        "model_path": config.MODEL_PATH
     }
 
 if __name__ == "__main__":
