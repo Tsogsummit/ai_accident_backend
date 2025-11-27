@@ -639,9 +639,25 @@ app.get('/reports/submissions',
         [userId]
       );
 
+      // UTC цагийг Монголын цагт хөрвүүлэх (UTC+8)
+      const formattedRows = result.rows.map(row => {
+        const formattedRow = { ...row };
+        if (formattedRow.created_at) {
+          const mongoTime = new Date(formattedRow.created_at);
+          mongoTime.setHours(mongoTime.getHours() + 8);
+          formattedRow.created_at = mongoTime.toISOString();
+        }
+        if (formattedRow.analyzed_at) {
+          const mongoTime = new Date(formattedRow.analyzed_at);
+          mongoTime.setHours(mongoTime.getHours() + 8);
+          formattedRow.analyzed_at = mongoTime.toISOString();
+        }
+        return formattedRow;
+      });
+
       res.json({
         success: true,
-        data: result.rows,
+        data: formattedRows,
         total: parseInt(countResult.rows[0].count),
         limit: parseInt(limit),
         offset: parseInt(offset)
