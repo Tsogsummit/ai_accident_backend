@@ -25,9 +25,48 @@ async function loadDashboardStats() {
   }
 }
 
-function renderStats(data) {
+async function renderStats(data) {
+  // Үндсэн статистик
   document.getElementById('active-accidents').textContent = formatNumber(data.accidents.active);
   document.getElementById('total-users').textContent = formatNumber(data.users.total);
+
+  // Нэмэлт статистик - баталгаажсан болон хуурмаг мэдээлэл
+  try {
+    const accidentsResult = await api.getAccidents();
+    const accidents = accidentsResult.data || [];
+
+    const confirmed = accidents.filter(a => a.status === 'confirmed').length;
+    const falseReports = accidents.filter(a => a.status === 'false_alarm').length;
+
+    document.getElementById('confirmed-accidents').textContent = formatNumber(confirmed);
+    document.getElementById('false-reports').textContent = formatNumber(falseReports);
+
+    // Өнөөдрийн статистик
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todayAccidents = accidents.filter(a => {
+      const accDate = new Date(a.accident_time);
+      accDate.setHours(0, 0, 0, 0);
+      return accDate.getTime() === today.getTime();
+    });
+
+    const todayReported = todayAccidents.filter(a => a.status === 'reported').length;
+    const todayConfirmed = todayAccidents.filter(a => a.status === 'confirmed').length;
+    const todayFalse = todayAccidents.filter(a => a.status === 'false_alarm').length;
+
+    document.getElementById('today-reports').textContent = formatNumber(todayReported);
+    document.getElementById('today-confirmed').textContent = formatNumber(todayConfirmed);
+    document.getElementById('today-false').textContent = formatNumber(todayFalse);
+
+    // Өнөөдрийн идэвхтэй хэрэглэгчид (өнөөдөр осол мэдээлсэн)
+    const uniqueUsers = new Set(todayAccidents.map(a => a.user_id).filter(Boolean));
+    document.getElementById('today-users').textContent = formatNumber(uniqueUsers.size);
+
+  } catch (error) {
+    console.error('Error loading additional stats:', error);
+  }
+
   document.getElementById('last-refresh').textContent = `Сүүлд шинэчилсэн: ${formatTime(new Date())}`;
 }
 

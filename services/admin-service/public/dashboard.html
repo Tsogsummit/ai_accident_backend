@@ -15,8 +15,7 @@
         <div class="nav-item"><a href="/dashboard.html" class="nav-link" data-page="dashboard"><i class="fas fa-th-large"></i><span>Дашбоард</span></a></div>
         <div class="nav-item"><a href="/accidents.html" class="nav-link" data-page="accidents"><i class="fas fa-exclamation-triangle"></i><span>Ослууд</span></a></div>
         <div class="nav-item"><a href="/users.html" class="nav-link" data-page="users"><i class="fas fa-users"></i><span>Хэрэглэгчид</span></a></div>
-        <div class="nav-item"><a href="/cameras.html" class="nav-link" data-page="cameras"><i class="fas fa-video"></i><span>Камерууд</span></a></div>
-        <div class="nav-item"><a href="/reports.html" class="nav-link" data-page="reports"><i class="fas fa-chart-bar"></i><span>Мэдэгдэл</span></a></div>
+        <div class="nav-item"><a href="/reports.html" class="nav-link" data-page="reports"><i class="fas fa-chart-bar"></i><span>Тайлан</span></a></div>
         <div class="nav-item"><a href="/services.html" class="nav-link" data-page="services"><i class="fas fa-server"></i><span>Сервисүүд</span></a></div>
       </nav>
     </aside>
@@ -38,7 +37,34 @@
         <div class="stats-grid">
           <div class="stat-card"><div class="stat-info"><div class="stat-label">Идэвхтэй ослууд</div><div class="stat-value" id="active-accidents">0</div></div><div class="stat-icon danger"><i class="fas fa-fire"></i></div></div>
           <div class="stat-card"><div class="stat-info"><div class="stat-label">Нийт хэрэглэгчид</div><div class="stat-value" id="total-users">0</div></div><div class="stat-icon primary"><i class="fas fa-users"></i></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-label">Баталгаажсан ослууд</div><div class="stat-value" id="confirmed-accidents">0</div></div><div class="stat-icon success"><i class="fas fa-check-circle"></i></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-label">Хуурмаг мэдээлэл</div><div class="stat-value" id="false-reports">0</div></div><div class="stat-icon warning"><i class="fas fa-flag"></i></div></div>
         </div>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="card-header"><h3 class="card-title">Өнөөдрийн үйл ажиллагаа</h3></div>
+          <div class="card-body">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+              <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--primary);" id="today-reports">0</div>
+                <div style="font-size: 0.875rem; color: var(--secondary); margin-top: 0.5rem;">Мэдээлсэн осол</div>
+              </div>
+              <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--success);" id="today-confirmed">0</div>
+                <div style="font-size: 0.875rem; color: var(--secondary); margin-top: 0.5rem;">Баталгаажсан</div>
+              </div>
+              <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--danger);" id="today-false">0</div>
+                <div style="font-size: 0.875rem; color: var(--secondary); margin-top: 0.5rem;">Хуурмаг гэж тэмдэглэсэн</div>
+              </div>
+              <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--info);" id="today-users">0</div>
+                <div style="font-size: 0.875rem; color: var(--secondary); margin-top: 0.5rem;">Идэвхтэй хэрэглэгч</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-header"><h3 class="card-title">Системийн төлөв</h3></div>
           <div class="card-body">
@@ -46,7 +72,8 @@
               <div class="status-indicator online"><span class="status-dot"></span><span>API Gateway</span></div>
               <div class="status-indicator online"><span class="status-dot"></span><span>Database</span></div>
               <div class="status-indicator online"><span class="status-dot"></span><span>Redis Cache</span></div>
-              <div class="status-indicator online"><span class="status-dot"></span><span>AI Service</span></div>
+              <div class="status-indicator online"><span class="status-dot"></span><span>Gemini AI Service</span></div>
+              <div class="status-indicator online"><span class="status-dot"></span><span>Notification Service</span></div>
             </div>
           </div>
         </div>
