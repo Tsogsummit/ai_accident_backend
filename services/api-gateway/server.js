@@ -120,7 +120,7 @@ const createProxy = (target, options = {}) => {
       if (!res.headersSent) {
         res.status(503).json({
           success: false,
-          error: 'Service временно недоступен',
+          error: 'Service temporarily unavailable',
           details: process.env.NODE_ENV === 'development' ? err.message : undefined
         });
       }

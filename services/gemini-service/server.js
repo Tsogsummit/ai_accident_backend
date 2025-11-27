@@ -57,7 +57,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
             });
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-3.0-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-thinking-exp-01-21" });
 
         const prompt = `
       Analyze this image for a car accident. 

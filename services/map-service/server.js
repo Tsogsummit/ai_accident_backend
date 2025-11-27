@@ -353,7 +353,7 @@ app.get('/health', (req, res) => {
   });
 });
 app.listen(PORT, () => {
-  console.log(`  Map Service запущен на порту ${PORT}`);
-  console.log(`  Google Maps API: ${GOOGLE_MAPS_API_KEY ? 'настроен' : 'не настроен'}`);
+  console.log(`  Map Service started on port ${PORT}`);
+  console.log(`  Google Maps API: ${GOOGLE_MAPS_API_KEY ? 'configured' : 'not configured'}`);
 });
 module.exports = app;

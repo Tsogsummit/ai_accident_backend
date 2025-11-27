@@ -1,7 +1,7 @@
 {
     "name": "gemini-service",
     "version": "1.0.0",
-    "description": "AI Accident Detection using Google Gemini",
+    "description": "AI Accident Detection using Google Gemini 2.0 Flash Thinking (Jan 2025)",
     "main": "server.js",
     "scripts": {
         "start": "node server.js",

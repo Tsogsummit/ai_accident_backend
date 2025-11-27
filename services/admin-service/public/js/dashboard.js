@@ -26,17 +26,8 @@ async function loadDashboardStats() {
 }
 
 function renderStats(data) {
-  document.getElementById('total-accidents').textContent = formatNumber(data.accidents.total);
   document.getElementById('active-accidents').textContent = formatNumber(data.accidents.active);
-  document.getElementById('today-accidents').textContent = formatNumber(data.accidents.today);
   document.getElementById('total-users').textContent = formatNumber(data.users.total);
-
-  document.getElementById('total-cameras').textContent = formatNumber(data.cameras.total);
-  document.getElementById('online-cameras').textContent = formatNumber(data.cameras.online);
-  document.getElementById('total-videos').textContent = formatNumber(data.videos.total);
-  document.getElementById('pending-videos').textContent = formatNumber(data.videos.pending);
-  document.getElementById('ai-accuracy').textContent = data.ai.accuracy;
-  document.getElementById('ai-confidence').textContent = data.ai.avgConfidence;
   document.getElementById('last-refresh').textContent = `Сүүлд шинэчилсэн: ${formatTime(new Date())}`;
 }
 

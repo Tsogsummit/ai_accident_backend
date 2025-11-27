@@ -859,7 +859,7 @@ process.on('SIGTERM', async () => {
 });
 
 app.listen(PORT, () => {
-  console.log(` Report Service запущен на порту ${PORT}`);
+  console.log(` Report Service started on port ${PORT}`);
 });
 
 module.exports = app;
